@@ -1,18 +1,14 @@
-import asyncio
 from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import Updater, CommandHandler, CallbackContext
 
 TOKEN = "8275887470:AAHckltQmADi9oLlNTPFmSHxchgzGFwH9qQ"
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text('Привет! Я работаю! 🤖')
+def start(update: Update, context: CallbackContext):
+    update.message.reply_text('Привет! Я работаю! 🤖')
 
-async def main():
-    app = Application.builder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    
-    print("✅ Бот запущен!")
-    await app.run_polling()
+updater = Updater(token=TOKEN)
+updater.dispatcher.add_handler(CommandHandler("start", start))
 
-if __name__ == "__main__":
-    asyncio.run(main())
+print("✅ Бот запущен!")
+updater.start_polling()
+updater.idle()
