@@ -4,7 +4,7 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Cont
 import os
 
 # Токен из переменных окружения Render
-TOKEN = os.environ.get("8942158039:AAEqukimot3xatu1UPD6toC9kg8cCW4b0Ns")
+TOKEN = "8942158039:AAEqukimot3xatu1UPD6toC9kg8cCW4b0Ns"
 logging.basicConfig(level=logging.INFO)
 
 games = {}
