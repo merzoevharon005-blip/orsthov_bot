@@ -1,11 +1,14 @@
+import os
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
-import os
 
-# Токен из переменных окружения Render
-TOKEN = "8942158039:AAEqukimot3xatu1UPD6toC9kg8cCW4b0Ns"
+# Настройка логирования
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Токен (замените на свой или используйте переменную окружения)
+TOKEN = "8942158039:AAEqukimot3xatu1UPD6toC9kg8cCW4b0Ns"
 
 games = {}
 
@@ -131,11 +134,13 @@ async def handle_move(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 def main():
+    logger.info("🚀 Бот запускается...")
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("play", play))
     app.add_handler(CallbackQueryHandler(handle_move, pattern="^move_"))
-    app.run_polling()
+    logger.info("✅ Бот готов к работе!")
+    app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
     main()
