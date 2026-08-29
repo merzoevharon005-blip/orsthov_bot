@@ -23,7 +23,7 @@ async def help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def run_bot():
     if not TOKEN:
-        print("ОШИБКА: Токен не найден! Добавь TELEGRAM_TOKEN в переменные окружения.")
+        print("ОШИБКА: Токен не найден!")
         return
     app_bot = ApplicationBuilder().token(TOKEN).build()
     app_bot.add_handler(CommandHandler("start", start))
