@@ -1,14 +1,13 @@
 import os
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Токен (замените на свой или используйте переменную окружения)
-TOKEN = "8942158039:AAEqukimot3xatu1UPD6toC9kg8cCW4b0Ns"
+TOKEN = os.environ.get("BOT_TOKEN", "8942158039:AAEqukimot3xatu1UPD6toC9kg8cCW4b0Ns")
 
 games = {}
 
@@ -56,14 +55,14 @@ class TicTacToe:
         else:
             return f"Ход игрока {self.players[self.current]} ({'X' if self.current == 0 else 'O'})"
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
+def start(update: Update, context: CallbackContext):
+    update.message.reply_text(
         "🎮 Игра Крестики-Нолики\n"
         "Используйте /play @username, чтобы начать игру с другим игроком.\n"
         "Или /play чтобы сыграть с ботом."
     )
 
-async def play(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def play(update: Update, context: CallbackContext):
     args = context.args
     player1 = update.effective_user.username or str(update.effective_user.id)
     
@@ -73,21 +72,21 @@ async def play(update: Update, context: ContextTypes.DEFAULT_TYPE):
         player2 = "Bot"
 
     if player1 == player2:
-        await update.message.reply_text("❌ Нельзя играть самим с собой!")
+        update.message.reply_text("❌ Нельзя играть самим с собой!")
         return
 
     game_id = f"{update.effective_chat.id}_{player1}_{player2}"
     games[game_id] = TicTacToe(player1, player2)
     game = games[game_id]
 
-    await update.message.reply_text(
+    update.message.reply_text(
         f"🆕 Игра началась!\n{game.get_status()}",
         reply_markup=game.get_keyboard()
     )
 
-async def handle_move(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def handle_move(update: Update, context: CallbackContext):
     query = update.callback_query
-    await query.answer()
+    query.answer()
     
     pos = int(query.data.split('_')[1])
     user = query.from_user.username or str(query.from_user.id)
@@ -101,20 +100,20 @@ async def handle_move(update: Update, context: ContextTypes.DEFAULT_TYPE):
             break
 
     if not game:
-        await query.edit_message_text("❌ Игра не найдена")
+        query.edit_message_text("❌ Игра не найдена")
         return
 
     current_player = game.players[game.current]
     if str(user) != current_player and current_player != "Bot":
-        await query.answer("⛔ Сейчас не ваш ход!")
+        query.answer("⛔ Сейчас не ваш ход!")
         return
 
     if not game.make_move(pos):
-        await query.answer("❌ Клетка занята!")
+        query.answer("❌ Клетка занята!")
         return
 
     if game.winner or game.is_draw():
-        await query.edit_message_text(
+        query.edit_message_text(
             f"{game.get_status()}",
             reply_markup=None
         )
@@ -128,19 +127,23 @@ async def handle_move(update: Update, context: ContextTypes.DEFAULT_TYPE):
             bot_move = random.choice(empty)
             game.make_move(bot_move)
 
-    await query.edit_message_text(
+    query.edit_message_text(
         f"{game.get_status()}",
         reply_markup=game.get_keyboard()
     )
 
 def main():
     logger.info("🚀 Бот запускается...")
-    app = Application.builder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("play", play))
-    app.add_handler(CallbackQueryHandler(handle_move, pattern="^move_"))
+    updater = Updater(token=TOKEN, use_context=True)
+    dp = updater.dispatcher
+    
+    dp.add_handler(CommandHandler("start", start))
+    dp.add_handler(CommandHandler("play", play))
+    dp.add_handler(CallbackQueryHandler(handle_move, pattern="^move_"))
+    
     logger.info("✅ Бот готов к работе!")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+    updater.start_polling()
+    updater.idle()
 
 if __name__ == "__main__":
     main()
