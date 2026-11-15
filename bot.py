@@ -15,7 +15,10 @@ if not TOKEN:
 ADMIN_ID = 8211650013 # ЗАМЕНИТЕ НА СВОЙ ID!
 
 bot = telebot.TeleBot(TOKEN)
-db = sqlite3.connect("mon.db", check_same_thread=False)
+import pathlib
+DATA_DIR = pathlib.Path("/app/data")
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+db = sqlite3.connect(str(DATA_DIR / "mon.db"), check_same_thread=False)
 cursor = db.cursor()
 
 # --- БАЗА ДАННЫХ ---
