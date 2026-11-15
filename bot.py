@@ -12,39 +12,22 @@ TOKEN = os.getenv("BOT_TOKEN")
 if not TOKEN:
     raise ValueError("Не задан BOT_TOKEN")
 
-ADMIN_ID = 8211650013 # ЗАМЕНИТЕ НА СВОЙ ID!
+# ВАШ ID (вставьте свой из @userinfobot)
+ADMIN_ID = 8211650013 
 
 bot = telebot.TeleBot(TOKEN)
-import pathlib
-DATA_DIR = pathlib.Path("/app/data")
-DATA_DIR.mkdir(parents=True, exist_ok=True)
-db = sqlite3.connect(str(DATA_DIR / "mon.db"), check_same_thread=False)
+
+# ИСПОЛЬЗУЕМ ОПЕРАТИВНУЮ ПАМЯТЬ (чтобы избежать ошибок с файлами на Bothost)
+# Внимание: при перезапуске бота балансы будут обнуляться, но админ всегда сможет выдать себе деньги командой /give
+db = sqlite3.connect(":memory:", check_same_thread=False)
 cursor = db.cursor()
 
 # --- БАЗА ДАННЫХ ---
 cursor.execute("CREATE TABLE IF NOT EXISTS players (user_id INTEGER PRIMARY KEY, username TEXT, balance INTEGER DEFAULT 1000)")
 cursor.execute("CREATE TABLE IF NOT EXISTS promos (code TEXT PRIMARY KEY, amount INTEGER, uses_left INTEGER)")
 cursor.execute("CREATE TABLE IF NOT EXISTS promo_activations (user_id INTEGER, code TEXT, PRIMARY KEY (user_id, code))")
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS roulette_history (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    number INTEGER,
-    color TEXT,
-    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-)
-""")
-# Новая таблица для истории переводов
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS transfers (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    sender_id INTEGER,
-    sender_name TEXT,
-    receiver_id INTEGER,
-    receiver_name TEXT,
-    amount INTEGER,
-    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-)
-""")
+cursor.execute("CREATE TABLE IF NOT EXISTS roulette_history (id INTEGER PRIMARY KEY AUTOINCREMENT, number INTEGER, color TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)")
+cursor.execute("CREATE TABLE IF NOT EXISTS transfers (id INTEGER PRIMARY KEY AUTOINCREMENT, sender_id INTEGER, sender_name TEXT, receiver_id INTEGER, receiver_name TEXT, amount INTEGER, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)")
 db.commit()
 
 mines_games = {}
@@ -86,6 +69,31 @@ def main_menu():
     )
     return kb
 
+# --- АДМИНСКАЯ КОМАНДА /give ---
+@bot.message_handler(commands=['give'])
+def admin_give(message):
+    # Проверка, что пишет именно админ
+    if message.from_user.id != ADMIN_ID:
+        bot.reply_to(message, "❌ У вас нет прав на эту команду.")
+        return
+    
+    try:
+        # Формат: /give ID СУММА
+        args = message.text.split()[1:]
+        target_id = int(args[0])
+        amount = int(args[1])
+        
+        # Проверяем, есть ли такой игрок в базе, если нет - создаем
+        cursor.execute("SELECT user_id FROM players WHERE user_id = ?", (target_id,))
+        if not cursor.fetchone():
+            cursor.execute("INSERT INTO players (user_id, username, balance) VALUES (?, ?, ?)", (target_id, "Player", 0))
+            db.commit()
+            
+        add_balance(target_id, amount)
+        bot.reply_to(message, f"✅ Выдано {amount} 🪙 игроку с ID {target_id}.")
+    except Exception as e:
+        bot.reply_to(message, "❌ Ошибка. Формат: `/give ID СУММА`\nПример: `/give 8211650013 100000`", parse_mode="Markdown")
+
 # --- СТАРТ И ПОМОЩЬ ---
 @bot.message_handler(commands=["start"])
 def start(message):
@@ -114,19 +122,18 @@ def send_help(message_or_call):
         "`лог` — последние 15 чисел рулетки\n"
         "`история` — история ваших переводов\n\n"
         "**💸 ПЕРЕВОДЫ**\n"
-        "`перевод 100 @username` — перевести монеты\n\n"
+        "`перевод 100 @username`\n\n"
         "**🎁 ПРОМОКОДЫ**\n"
         "Просто напишите код (например: `MONIX`).\n\n"
         "**🎮 БЫСТРЫЙ ЗАПУСК ИГР**\n"
-        "`мины 1000` — сапер со ставкой 1000\n"
-        "`мины 500 5` — сапер (500, 5 мин)\n"
-        "`краш 500` — краш со ставкой 500\n\n"
+        "`мины 1000` — сапер\n"
+        "`краш 500` — краш\n\n"
         "**🎰 РУЛЕТКА (МУЛЬТИСТАВКИ)**\n"
         "Пишите ставки: `100 5, 200 10-15, 50 red`.\n"
-        "Затем напишите **`го`**, чтобы крутить.\n"
-        "Отмена — `отмена`.\n\n"
+        "Затем напишите **`го`**, чтобы крутить.\n\n"
         "**👑 ДЛЯ АДМИНА**\n"
-        "`/createpromo КОД СУММА АКТИВАЦИИ`"
+        "`/createpromo КОД СУММА АКТИВАЦИИ`\n"
+        "`/give ID СУММА` — выдать деньги"
     )
     bot.send_message(chat_id, help_text, parse_mode="Markdown")
 
@@ -320,7 +327,7 @@ def process_roulette_session(user_id, chat_id):
         f"🪙 Ваш баланс: {get_balance(user_id)}\n\n"
         f"📜 История: {get_history_roulette()}", parse_mode="Markdown")
 
-# --- АДМИНКА ---
+# --- СОЗДАНИЕ ПРОМОКОДОВ ---
 @bot.message_handler(commands=['createpromo'])
 def create_promo(message):
     if message.from_user.id != ADMIN_ID: return
@@ -341,7 +348,6 @@ def handle_all_text(message):
     parts = text.split()
     user_id = message.from_user.id
     
-    # 1. Баланс и профиль
     if text in ["б", "баланс"]:
         bot.reply_to(message, f"🪙 Твой баланс: {get_balance(user_id)} Mon1Coin")
         return
@@ -349,7 +355,6 @@ def handle_all_text(message):
         bot.reply_to(message, f"👤 ID: {user_id}\n🪙 Баланс: {get_balance(user_id)} Mon1Coin")
         return
 
-    # 2. Логи и История
     if text == "лог":
         bot.reply_to(message, f"📜 **Последние 15 чисел рулетки:**\n{get_history_roulette()}", parse_mode="Markdown")
         return
@@ -360,10 +365,9 @@ def handle_all_text(message):
         if not transfers:
             bot.reply_to(message, "📭 У вас пока нет истории переводов.")
             return
-            
-        hist_text = "📜 **История ваших переводов (последние 10):**\n\n"
+        hist_text = "📜 **История ваших переводов:**\n\n"
         for s_id, s_name, r_name, amount, ts in transfers:
-            date_str = ts.split()[0] # Просто дата
+            date_str = ts.split()[0]
             if s_id == user_id:
                 hist_text += f"📤 {date_str}: Вы перевели **{amount}** 🪙 для @{r_name}\n"
             else:
@@ -371,7 +375,6 @@ def handle_all_text(message):
         bot.reply_to(message, hist_text, parse_mode="Markdown")
         return
 
-    # 3. Быстрый запуск игр
     if parts[0] in ["мины", "mines"] and len(parts) >= 2:
         try: start_mines_game(user_id, message.chat.id, int(parts[1]), int(parts[2]) if len(parts) > 2 else 3)
         except: bot.reply_to(message, "❌ Формат: `мины 1000 3`")
@@ -382,7 +385,6 @@ def handle_all_text(message):
         except: bot.reply_to(message, "❌ Формат: `краш 1000`")
         return
 
-    # 4. Переводы
     if parts[0] in ["перевод", "перевести", "пей"] and len(parts) >= 3:
         try:
             amount = int(parts[1])
@@ -396,8 +398,6 @@ def handle_all_text(message):
             
             add_balance(user_id, -amount)
             add_balance(receiver_id, amount)
-            
-            # ЗАПИСЬ В ИСТОРИЮ
             cursor.execute("INSERT INTO transfers (sender_id, sender_name, receiver_id, receiver_name, amount) VALUES (?, ?, ?, ?, ?)",
                            (user_id, message.from_user.username or message.from_user.first_name, receiver_id, receiver_name, amount))
             db.commit()
@@ -406,9 +406,8 @@ def handle_all_text(message):
             try: bot.send_message(receiver_id, f"💸 Вам перевели {amount} 🪙 от @{message.from_user.username or message.from_user.first_name}!")
             except: pass
             return
-        except Exception as e: return bot.reply_to(message, "❌ Неверный формат перевода.")
+        except: return bot.reply_to(message, "❌ Неверный формат перевода.")
 
-    # 5. Промокоды
     if len(parts) == 1 and len(text) > 3 and text.isalnum():
         code = text.upper()
         cursor.execute("SELECT amount, uses_left FROM promos WHERE code = ?", (code,))
@@ -424,7 +423,6 @@ def handle_all_text(message):
             db.commit()
             return bot.reply_to(message, f"🎉 Промокод активирован! +{amount} 🪙")
 
-    # 6. Рулетка (сессия)
     if text == "го":
         if user_id in roulette_sessions and roulette_sessions[user_id]["bets"]:
             process_roulette_session(user_id, message.chat.id)
@@ -438,7 +436,6 @@ def handle_all_text(message):
             bot.reply_to(message, "✅ Сессия ставок очищена.")
         return
 
-    # Поиск ставок
     potential_bets = re.findall(r'(\d+)\s+([a-zA-Zа-яА-Я0-9\-]+)', text)
     if potential_bets:
         if user_id not in roulette_sessions: roulette_sessions[user_id] = {"bets": []}
