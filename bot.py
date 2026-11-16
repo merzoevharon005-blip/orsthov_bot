@@ -1,15 +1,27 @@
-import os, random, math, time, telebot, threading, json, pathlib
+import os
+import random
+import math
+import time
+import telebot
+import threading
+import json
+import pathlib
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, LabeledPrice
 
 TOKEN = os.getenv("BOT_TOKEN")
-if not TOKEN: raise ValueError("Не задан BOT_TOKEN")
+if not TOKEN:
+    raise ValueError("Не задан BOT_TOKEN")
 
 ADMIN_IDS = [8211650013, 6940877915] 
 DATA_DIR = pathlib.Path("/app/data")
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DATA_FILE = DATA_DIR / "database.json"
 
-data = {"players": {}, "promos": {}, "activations": [], "history": [], "clans": {}, "clan_bosses": {}}
+# Добавляем next_id для генерации ID 1, 2, 3...
+data = {
+    "players": {}, "promos": {}, "activations": [], "history": [], "transfers": [], 
+    "clans": {}, "clan_bosses": {}, "next_id": 1
+}
 
 def load_data():
     global data
@@ -17,86 +29,177 @@ def load_data():
         try:
             with open(DATA_FILE, "r", encoding="utf-8") as f:
                 loaded = json.load(f)
-                for k in loaded: data[k] = loaded[k]
-        except: pass
+                for key in loaded:
+                    data[key] = loaded[key]
+                print("✅ База данных загружена.")
+        except Exception as e:
+            print(f"⚠️ Ошибка загрузки: {e}")
+
 def save_data():
-    with open(DATA_FILE, "w", encoding="utf-8") as f: json.dump(data, f, ensure_ascii=False, indent=4)
+    with open(DATA_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
 
 load_data()
 bot = telebot.TeleBot(TOKEN)
-mines_games, crash_games = {}, {}
 
-def get_balance(uid):
-    uid = str(uid)
-    return data["players"].get(uid, {}).get("balance", 0)
-def get_nick(uid):
-    uid = str(uid)
-    return data["players"].get(uid, {}).get("username", "Player")
-def get_short_id(uid):
-    uid = str(uid)
-    return data["players"].get(uid, {}).get("short_id", "0")
-def add_balance(uid, amt):
-    uid = str(uid)
-    if uid not in data["players"]: register_by_id(uid)
-    data["players"][uid]["balance"] += amt
+mines_games = {}
+crash_games = {}
+
+# --- БАЗОВЫЕ ФУНКЦИИ ---
+def get_balance(user_id):
+    uid = str(user_id)
+    if uid not in data["players"]: return 0
+    return data["players"][uid].get("balance", 0)
+
+def get_nick(user_id):
+    uid = str(user_id)
+    if uid not in data["players"]: return "Player"
+    return data["players"][uid].get("username", "Player")
+
+def get_user_short_id(user_id):
+    uid = str(user_id)
+    if uid not in data["players"]: return "0"
+    return data["players"][uid].get("short_id", "0")
+
+def add_balance(user_id, amount):
+    uid = str(user_id)
+    if uid not in data["players"]: register_user_by_id(uid)
+    data["players"][uid]["balance"] += amount
     save_data()
-def register_by_id(uid):
-    if uid not in data["players"]:
-        data["players"][uid] = {"username": "Player", "balance": 1000, "last_bonus": 0, "short_id": random.randint(1000, 9999), "clan_id": None, "weapon": 1, "armor": 1}
-        save_data()
+
 def register_user(user):
     uid = str(user.id)
     if uid not in data["players"]:
-        data["players"][uid] = {"username": user.username or user.first_name, "balance": 1000, "last_bonus": 0, "short_id": random.randint(1000, 9999), "clan_id": None, "weapon": 1, "armor": 1}
+        short_id = data["next_id"]
+        data["next_id"] += 1
+        data["players"][uid] = {
+            "username": user.username or user.first_name,
+            "balance": 1000, "last_bonus": 0, "short_id": short_id,
+            "clan_id": None, "weapon": 1, "armor": 1
+        }
         save_data()
 
-def get_history():
-    if not data["history"]: return "Пусто"
-    return " ".join([("🟢" if i["color"]=="green" else ("🔴" if i["color"]=="red" else "⚫️"))+str(i["number"]) for i in data["history"][-15:]])
+def register_user_by_id(uid):
+    if uid not in data["players"]:
+        short_id = data["next_id"]
+        data["next_id"] += 1
+        data["players"][uid] = {
+            "username": "Player", "balance": 1000, "last_bonus": 0, 
+            "short_id": short_id, "clan_id": None, "weapon": 1, "armor": 1
+        }
+        save_data()
+
+def get_history_roulette():
+    if not data["history"]: return "История пуста."
+    res = []
+    for item in data["history"][-15:]:
+        num, color = item["number"], item["color"]
+        sym = "🟢" if color == "green" else ("🔴" if color == "red" else "⚫️")
+        res.append(f"{sym}{num}")
+    return " ".join(res)
 
 def main_menu():
     kb = InlineKeyboardMarkup(row_width=2)
-    kb.add(InlineKeyboardButton("💣 MINES", callback_data="game_mines"), InlineKeyboardButton("🚀 CRASH", callback_data="game_crash"), InlineKeyboardButton("🎰 РУЛЕТКА", callback_data="game_roulette"), InlineKeyboardButton("👤 ПРОФИЛЬ", callback_data="profile"), InlineKeyboardButton("🎁 БОНУС", callback_data="bonus_menu"), InlineKeyboardButton("🏆 ТОП", callback_data="top_menu"), InlineKeyboardButton("🛡 КЛАНЫ", callback_data="clan_menu"), InlineKeyboardButton("⚔️ МАГАЗИН", callback_data="shop_menu"), InlineKeyboardButton("❓ ПОМОЩЬ", callback_data="help_menu"), InlineKeyboardButton("⭐ ДОНАТ", callback_data="donate_menu"))
+    kb.add(
+        InlineKeyboardButton("💣 MINES", callback_data="game_mines"),
+        InlineKeyboardButton("🚀 CRASH", callback_data="game_crash"),
+        InlineKeyboardButton("🎰 РУЛЕТКА", callback_data="game_roulette"),
+        InlineKeyboardButton("👤 ПРОФИЛЬ", callback_data="profile"),
+        InlineKeyboardButton("🎁 БОНУС", callback_data="bonus_menu"),
+        InlineKeyboardButton("🏆 ТОП", callback_data="top_menu"),
+        InlineKeyboardButton("🛡 КЛАНЫ", callback_data="clan_menu"),
+        InlineKeyboardButton("⚔️ МАГАЗИН", callback_data="shop_menu"),
+        InlineKeyboardButton("❓ ПОМОЩЬ", callback_data="help_menu"),
+        InlineKeyboardButton("⭐ ДОНАТ", callback_data="donate_menu")
+    )
     return kb
 
+def send_help_text(chat_id, msg_id=None):
+    help_text = (
+        "📖 **ИНСТРУКЦИЯ MON1 CASINO**\n\n"
+        "🪙 **Валюта:** Mon1Coin\n\n"
+        "**👤 ПРОФИЛЬ И БАЛАНС**\n"
+        "`б` или `баланс` — узнать баланс\n"
+        "`профиль` — ваш ID, ник и статы\n"
+        "`сменить ник НОВЫЙ_НИК` — изменить имя\n"
+        "`бонус` — получить от 1000 до 2000 🪙 раз в 24 часа\n\n"
+        "**🎮 ИГРЫ**\n"
+        "`мины 1000 3` — сапер (ставка 1000, 3 мины)\n"
+        "`краш 500` — краш игра\n"
+        "`1000 на 1 на 5` — рулетка (число/цвет/диапазон)\n\n"
+        "**🛡 КЛАНЫ**\n"
+        "Создать клан: 5000 🪙\n"
+        "Вступить: по ID клана\n"
+        "Лимит: 15 игроков\n"
+        "Боссы: атакуйте босса клана\n\n"
+        "**⚔️ МАГАЗИН**\n"
+        "Оружие (урон): 2000 🪙\n"
+        "Броня (защита): 2000 🪙\n\n"
+        "**👑 АДМИН**\n"
+        "`/give ID СУММА` — выдать монеты\n"
+        "`/reset ID` — обнулить баланс\n"
+        "`/wipe` — сбросить всех до 1000\n"
+        "`/createpromo КОД СУММА ЮЗЫ` — создать промокод"
+    )
+    if msg_id:
+        bot.edit_message_text(help_text, chat_id, msg_id, reply_markup=main_menu(), parse_mode="Markdown")
+    else:
+        bot.send_message(chat_id, help_text, reply_markup=main_menu(), parse_mode="Markdown")
+
+# --- ОБРАБОТЧИКИ ---
 @bot.message_handler(commands=["start"])
 def start(message):
     register_user(message.from_user)
-    bot.send_message(message.chat.id, f"🎰 MON1 CASINO RPG!\n\n🪙 Баланс: {get_balance(message.from_user.id)} Mon1Coin\nВыбирай:", reply_markup=main_menu())
+    bot.send_message(message.chat.id, f"🎰 ДОБРО ПОЖАЛОВАТЬ В MON1 CASINO RPG!\n\n🪙 Твой баланс: {get_balance(message.from_user.id)} Mon1Coin\n\nВыбирай действие:", reply_markup=main_menu())
 
 @bot.callback_query_handler(func=lambda call: call.data == "profile")
-def profile(call):
+def profile_callback(call):
     bot.answer_callback_query(call.id)
-    p = data["players"].get(str(call.from_user.id), {})
-    c_name = "Нет" if not p.get("clan_id") else data["clans"].get(str(p["clan_id"]), {}).get("name", "Нет")
-    text = f"👤 **Профиль**\n🆔 ID: `{p.get('short_id')}`\n📛 Ник: {get_nick(call.from_user.id)}\n🪙 Баланс: {get_balance(call.from_user.id)}\n🛡 Клан: {c_name}\n⚔️ Оружие: ур.{p.get('weapon',1)}\n🥋 Броня: ур.{p.get('armor',1)}"
-    bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=main_menu(), parse_mode="Markdown")
-
-@bot.callback_query_handler(func=lambda call: call.data == "bonus_menu")
-def bonus(call):
-    bot.answer_callback_query(call.id)
-    uid=str(call.from_user.id); now=int(time.time()); last=data["players"].get(uid,{}).get("last_bonus",0)
-    if now-last < 86400: msg=f"⏳ Ждать: **{(86400-(now-last))//3600} ч. {((86400-(now-last))%3600)//60} мин.**"
-    else:
-        amt=random.randint(1000,2000); add_balance(uid,amt); data["players"][uid]["last_bonus"]=now; save_data(); msg=f"🎁 Бонус: **+{amt} 🪙**"
-    bot.edit_message_text(msg, call.message.chat.id, call.message.message_id, reply_markup=main_menu(), parse_mode="Markdown")
-
-@bot.callback_query_handler(func=lambda call: call.data == "top_menu")
-def top(call):
-    bot.answer_callback_query(call.id)
-    s=sorted(data["players"].items(), key=lambda x: x[1].get("balance",0), reverse=True)[:10]
-    text="🏆 **ТОП-10**\n\n"+"".join([f"{i}. {p.get('username','?')} — {p.get('balance',0)} 🪙\n" for i,(u,p) in enumerate(s,1)])
+    uid = call.from_user.id
+    p = data["players"].get(str(uid), {})
+    clan_name = "Нет" if not p.get("clan_id") else data["clans"].get(str(p["clan_id"]), {}).get("name", "Нет")
+    text = (
+        f"👤 **Профиль**\n\n🆔 ID: `{p.get('short_id')}`\n📛 Ник: {get_nick(uid)}\n"
+        f"🪙 Баланс: {get_balance(uid)} Mon1Coin\n🛡 Клан: {clan_name}\n"
+        f"⚔️ Оружие ур.{p.get('weapon', 1)}\n🥋 Броня ур.{p.get('armor', 1)}"
+    )
     bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=main_menu(), parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data == "help_menu")
-def help_cb(call):
+def help_callback(call):
     bot.answer_callback_query(call.id)
-    text="📖 **ПОМОЩЬ**\n`б` - баланс\n`профиль`\n`сменить ник ИМЯ`\n`бонус`\n\n**ИГРЫ**\n`мины 1000`\n`краш 1000`\n`1000 на 1 на 5`\n\n**КЛАНЫ**\nСоздать: 5000\nВступить: по ID\nЛимит: 15\n\n**МАГАЗИН**\nОружие/Броня: 2000\n\n**АДМИН**\n`/give`, `/reset`, `/wipe`, `/createpromo`"
+    send_help_text(call.message.chat.id, call.message.message_id)
+
+# --- ОСТАЛЬНЫЕ ИГРЫ, КЛАНЫ, МАГАЗИН И Т.Д. ---
+# (Я использую упрощенный стиль записи, чтобы код влез в сообщение, но он рабочий)
+
+@bot.callback_query_handler(func=lambda call: call.data == "bonus_menu")
+def bonus_callback(call):
+    bot.answer_callback_query(call.id)
+    uid = str(call.from_user.id)
+    now, last, cd = int(time.time()), data["players"].get(uid, {}).get("last_bonus", 0), 86400
+    if now - last < cd:
+        msg = f"⏳ Бонус через: **{(cd-(now-last))//3600} ч. {((cd-(now-last))%3600)//60} мин.**"
+    else:
+        amt = random.randint(1000, 2000)
+        add_balance(uid, amt)
+        data["players"][uid]["last_bonus"] = now
+        save_data()
+        msg = f"🎁 **БОНУС!**\nВы получили: **+{amt} Mon1Coin** 🪙"
+    bot.edit_message_text(msg, call.message.chat.id, call.message.message_id, reply_markup=main_menu(), parse_mode="Markdown")
+
+@bot.callback_query_handler(func=lambda call: call.data == "top_menu")
+def top_callback(call):
+    bot.answer_callback_query(call.id)
+    s = sorted(data["players"].items(), key=lambda x: x[1].get("balance", 0), reverse=True)[:10]
+    text = "🏆 **ТОП-10**\n\n" + "".join([f"{i}. {p.get('username','?')} — {p.get('balance',0)} 🪙\n" for i, (u, p) in enumerate(s, 1)])
     bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=main_menu(), parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data == "back")
 def back(call):
-    bot.edit_message_text("🎰 МЕНЮ", call.message.chat.id, call.message.message_id, reply_markup=main_menu())
+    bot.edit_message_text("🎰 ГЛАВНОЕ МЕНЮ", call.message.chat.id, call.message.message_id, reply_markup=main_menu())
+
+# ... (кланы, магазин, боссы и игры идут ниже, они такие же, как в прошлом коде) ...
 
 @bot.callback_query_handler(func=lambda call: call.data == "clan_menu")
 def clan(call):
@@ -229,7 +332,7 @@ def mines_play(call):
 @bot.callback_query_handler(func=lambda call: call.data == "game_roulette")
 def roul(call):
     bot.answer_callback_query(call.id)
-    bot.edit_message_text(f"🎰 **РУЛЕТКА**\n\n📜 {get_history()}\n\n`1000 на 1 на 5`\n`500 на red`", call.message.chat.id, call.message.message_id, reply_markup=main_menu(), parse_mode="Markdown")
+    bot.edit_message_text(f"🎰 **РУЛЕТКА**\n\n📜 {get_history_roulette()}\n\n`1000 на 1 на 5`\n`500 на red`", call.message.chat.id, call.message.message_id, reply_markup=main_menu(), parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data == "donate_menu")
 def donate(call):
@@ -253,7 +356,7 @@ def success(m):
 @bot.message_handler(commands=['give'])
 def give(m):
     if m.from_user.id not in ADMIN_IDS: return
-    try: a=m.text.split()[1:]; t=str(int(a[0])); amt=int(a[1]); register_by_id(t); add_balance(t,amt); bot.reply_to(m,f"✅ +{amt} 🪙")
+    try: a=m.text.split()[1:]; t=str(int(a[0])); amt=int(a[1]); register_user_by_id(t); add_balance(t,amt); bot.reply_to(m,f"✅ +{amt} 🪙")
     except: bot.reply_to(m,"❌ `/give ID СУММА`",parse_mode="Markdown")
 @bot.message_handler(commands=['reset'])
 def rst(m):
@@ -276,7 +379,8 @@ def txt(m):
     if m.text.startswith('/'): return
     t=m.text.lower().strip(); p=t.split(); u=m.from_user.id
     if t in ["б","баланс"]: return bot.reply_to(m,f"🪙 {get_balance(u)}")
-    if t in ["профиль","п"]: return bot.reply_to(m,f"👤 ID: `{get_short_id(u)}`\nНик: {get_nick(u)}",parse_mode="Markdown")
+    if t in ["профиль","п"]: return bot.reply_to(m,f"👤 ID: `{get_user_short_id(u)}`\nНик: {get_nick(u)}",parse_mode="Markdown")
+    if t in ["помощь", "help"]: return send_help_text(m.chat.id)
     if t=="бонус": return bonus_cb_logic(u,m.chat.id)
     if p[0] in ["сменить","ник"] and len(p)>=2:
         data["players"][str(u)]["username"]=" ".join(p[1:])[:15]; save_data(); return bot.reply_to(m,"✅ Ник изменен.")
@@ -318,6 +422,14 @@ def txt(m):
             add_balance(u,tw); bot.reply_to(m,f"🎰 {sym} **{wn}**\n"+"\n".join(res)+f"\n💰 Итог: {tw} 🪙",parse_mode="Markdown"); return
         except ValueError: bot.reply_to(m,"❌ `1000 на 5`",parse_mode="Markdown")
         return
+    if len(p)==1 and len(t)>3 and t.isalnum():
+        code=t.upper()
+        if code in data["promos"]:
+            pr=data["promos"][code]
+            if pr["uses_left"]<=0: return bot.reply_to(m,"❌ Не работает.")
+            if [str(u),code] in data["activations"]: return bot.reply_to(m,"❌ Уже активировали!")
+            add_balance(u,pr["amount"]); pr["uses_left"]-=1; data["activations"].append([str(u),code]); save_data()
+            return bot.reply_to(m,f"🎉 +{pr['amount']} 🪙")
 
 def bonus_cb_logic(uid,cid):
     now=int(time.time()); last=data["players"].get(str(uid),{}).get("last_bonus",0)
