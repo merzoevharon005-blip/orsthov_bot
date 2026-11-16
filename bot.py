@@ -103,11 +103,25 @@ def donate_menu(call):
     bot.edit_message_text("💖 **Поддержите проект!**\n\nВыберите пакет доната. Звезды спишутся с вашего баланса Telegram.", 
                           call.message.chat.id, call.message.message_id, reply_markup=kb, parse_mode="Markdown")
 
+@bot.message_handler(commands=['donate', 'donat'])
+@bot.message_handler(func=lambda message: message.text.lower().strip() in ["донат", "донейт"])
+def show_donate_menu(message):
+    kb = InlineKeyboardMarkup(row_width=1)
+    kb.add(
+        InlineKeyboardButton("⭐ 50 Звезд (5000 Mon1Coin)", callback_data="pay_50"),
+        InlineKeyboardButton("⭐ 100 Звезд (12000 Mon1Coin)", callback_data="pay_100"),
+        InlineKeyboardButton("⭐ 250 Звезд (35000 Mon1Coin)", callback_data="pay_250")
+    )
+    bot.send_message(
+        message.chat.id, 
+        "💖 **Поддержите проект!**\n\nВыберите пакет доната. Звезды спишутся с вашего баланса Telegram.", 
+        reply_markup=kb, 
+        parse_mode="Markdown"
+    )
+
 @bot.callback_query_handler(func=lambda call: call.data.startswith("pay_"))
 def send_donate_invoice(call):
     stars = int(call.data.split("_")[1])
-    
-    # Определяем количество монет за донат
     coins = {50: 5000, 100: 12000, 250: 35000}[stars]
     
     bot.answer_callback_query(call.id)
@@ -204,7 +218,7 @@ def send_help(message_or_call):
         "**🎁 ПРОМОКОДЫ**\n"
         "Просто напишите код.\n\n"
         "**⭐ ДОНАТ**\n"
-        "Нажмите кнопку ДОНАТ в меню, чтобы купить Mon1Coin за Telegram Stars.\n\n"
+        "Напишите `донат` или `/donate`, чтобы поддержать проект звездами.\n\n"
         "**🎮 БЫСТРЫЙ ЗАПУСК**\n"
         "`мины 1000` — сапер\n"
         "`краш 500` — краш\n\n"
@@ -345,6 +359,10 @@ def handle_all_text(message):
     text = message.text.lower().strip()
     parts = text.split()
     user_id = message.from_user.id
+    
+    # Обработка доната текстом (если не сработал декоратор выше)
+    if text in ["донат", "донейт"]:
+        return 
     
     if text in ["б", "баланс"]:
         bot.reply_to(message, f"🪙 Твой баланс: {get_balance(user_id)} Mon1Coin")
