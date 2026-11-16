@@ -17,9 +17,8 @@ DATA_DIR = pathlib.Path("/app/data")
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DATA_FILE = DATA_DIR / "database.json"
 
-# Добавляем next_id для генерации ID 1, 2, 3...
 data = {
-    "players": {}, "promos": {}, "activations": [], "history": [], "transfers": [], 
+    "players": {}, "promos": {}, "activations": [], "history": [], 
     "clans": {}, "clan_bosses": {}, "next_id": 1
 }
 
@@ -40,6 +39,37 @@ def save_data():
         json.dump(data, f, ensure_ascii=False, indent=4)
 
 load_data()
+
+# --- ИСПРАВЛЕНИЕ ID (МИГРАЦИЯ) ---
+def migrate_ids():
+    global data
+    changed = False
+    current_max = 0
+    
+    # 1. Ищем максимальный существующий ID
+    for pdata in data["players"].values():
+        sid = pdata.get("short_id", 0)
+        if isinstance(sid, int) and sid > current_max:
+            current_max = sid
+            
+    # 2. Проверяем next_id (чтобы он был больше максимального)
+    if data.get("next_id", 1) <= current_max:
+        data["next_id"] = current_max + 1
+
+    # 3. Выдаем ID тем, у кого их нет или они равны 0
+    for uid, pdata in data["players"].items():
+        if "short_id" not in pdata or pdata["short_id"] == 0 or pdata["short_id"] == "0":
+            pdata["short_id"] = data["next_id"]
+            data["next_id"] += 1
+            changed = True
+            
+    if changed:
+        save_data()
+        print("✅ Всем игрокам выданы уникальные ID.")
+
+# Запускаем миграцию при старте
+migrate_ids()
+
 bot = telebot.TeleBot(TOKEN)
 
 mines_games = {}
@@ -119,27 +149,22 @@ def send_help_text(chat_id, msg_id=None):
         "📖 **ИНСТРУКЦИЯ MON1 CASINO**\n\n"
         "🪙 **Валюта:** Mon1Coin\n\n"
         "**👤 ПРОФИЛЬ И БАЛАНС**\n"
-        "`б` или `баланс` — узнать баланс\n"
-        "`профиль` — ваш ID, ник и статы\n"
-        "`сменить ник НОВЫЙ_НИК` — изменить имя\n"
-        "`бонус` — получить от 1000 до 2000 🪙 раз в 24 часа\n\n"
+        "`б` или `баланс` — баланс\n"
+        "`профиль` — ваш ID и статы\n"
+        "`сменить ник НИК` — изменить имя\n"
+        "`бонус` — от 1000 до 2000 раз в 24 часа\n\n"
         "**🎮 ИГРЫ**\n"
-        "`мины 1000 3` — сапер (ставка 1000, 3 мины)\n"
-        "`краш 500` — краш игра\n"
-        "`1000 на 1 на 5` — рулетка (число/цвет/диапазон)\n\n"
+        "`мины 1000 3` — сапер (1000, 3 мины)\n"
+        "`краш 500` — краш\n"
+        "`1000 на 1 на 5` — рулетка (на число/цвет/диапазон)\n\n"
         "**🛡 КЛАНЫ**\n"
         "Создать клан: 5000 🪙\n"
         "Вступить: по ID клана\n"
-        "Лимит: 15 игроков\n"
-        "Боссы: атакуйте босса клана\n\n"
+        "Лимит: 15 игроков\n\n"
         "**⚔️ МАГАЗИН**\n"
-        "Оружие (урон): 2000 🪙\n"
-        "Броня (защита): 2000 🪙\n\n"
+        "Оружие/Броня: 2000 🪙\n\n"
         "**👑 АДМИН**\n"
-        "`/give ID СУММА` — выдать монеты\n"
-        "`/reset ID` — обнулить баланс\n"
-        "`/wipe` — сбросить всех до 1000\n"
-        "`/createpromo КОД СУММА ЮЗЫ` — создать промокод"
+        "`/give ID СУММА`\n`/reset ID`\n`/wipe`\n`/createpromo КОД СУММА ЮЗЫ`"
     )
     if msg_id:
         bot.edit_message_text(help_text, chat_id, msg_id, reply_markup=main_menu(), parse_mode="Markdown")
@@ -170,9 +195,6 @@ def help_callback(call):
     bot.answer_callback_query(call.id)
     send_help_text(call.message.chat.id, call.message.message_id)
 
-# --- ОСТАЛЬНЫЕ ИГРЫ, КЛАНЫ, МАГАЗИН И Т.Д. ---
-# (Я использую упрощенный стиль записи, чтобы код влез в сообщение, но он рабочий)
-
 @bot.callback_query_handler(func=lambda call: call.data == "bonus_menu")
 def bonus_callback(call):
     bot.answer_callback_query(call.id)
@@ -198,8 +220,6 @@ def top_callback(call):
 @bot.callback_query_handler(func=lambda call: call.data == "back")
 def back(call):
     bot.edit_message_text("🎰 ГЛАВНОЕ МЕНЮ", call.message.chat.id, call.message.message_id, reply_markup=main_menu())
-
-# ... (кланы, магазин, боссы и игры идут ниже, они такие же, как в прошлом коде) ...
 
 @bot.callback_query_handler(func=lambda call: call.data == "clan_menu")
 def clan(call):
