@@ -1,34 +1,53 @@
 import os
-import sqlite3
 import random
 import math
 import time
 import telebot
 import threading
 import re
+import json
+import pathlib
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 TOKEN = os.getenv("BOT_TOKEN")
 if not TOKEN:
     raise ValueError("Не задан BOT_TOKEN")
 
-# ВАШ ID (вставьте свой из @userinfobot)
-ADMIN_ID = 8211650013 
+ADMIN_ID = 8211650013 # ЗАМЕНИТЕ НА СВОЙ ID!
 
+# --- НАСТРОЙКА ХРАНЕНИЯ ДАННЫХ ---
+DATA_DIR = pathlib.Path("/app/data")
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+DATA_FILE = DATA_DIR / "database.json"
+
+# Глобальные переменные для данных
+data = {
+    "players": {},       # {user_id: {"username": "...", "balance": 1000}}
+    "promos": {},        # {code: {"amount": 500, "uses_left": 10}}
+    "activations": [],   # [user_id, code]
+    "history": []        # [{number: 15, color: "red"}]
+}
+
+# Загрузка данных при запуске
+def load_data():
+    global data
+    if DATA_FILE.exists():
+        try:
+            with open(DATA_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                print("✅ База данных загружена.")
+        except Exception as e:
+            print(f"⚠️ Ошибка загрузки: {e}")
+    else:
+        print("🆕 Создана новая база данных.")
+
+# Сохранение данных
+def save_data():
+    with open(DATA_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
+
+load_data()
 bot = telebot.TeleBot(TOKEN)
-
-# ИСПОЛЬЗУЕМ ОПЕРАТИВНУЮ ПАМЯТЬ (чтобы избежать ошибок с файлами на Bothost)
-# Внимание: при перезапуске бота балансы будут обнуляться, но админ всегда сможет выдать себе деньги командой /give
-db = sqlite3.connect(":memory:", check_same_thread=False)
-cursor = db.cursor()
-
-# --- БАЗА ДАННЫХ ---
-cursor.execute("CREATE TABLE IF NOT EXISTS players (user_id INTEGER PRIMARY KEY, username TEXT, balance INTEGER DEFAULT 1000)")
-cursor.execute("CREATE TABLE IF NOT EXISTS promos (code TEXT PRIMARY KEY, amount INTEGER, uses_left INTEGER)")
-cursor.execute("CREATE TABLE IF NOT EXISTS promo_activations (user_id INTEGER, code TEXT, PRIMARY KEY (user_id, code))")
-cursor.execute("CREATE TABLE IF NOT EXISTS roulette_history (id INTEGER PRIMARY KEY AUTOINCREMENT, number INTEGER, color TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)")
-cursor.execute("CREATE TABLE IF NOT EXISTS transfers (id INTEGER PRIMARY KEY AUTOINCREMENT, sender_id INTEGER, sender_name TEXT, receiver_id INTEGER, receiver_name TEXT, amount INTEGER, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)")
-db.commit()
 
 mines_games = {}
 crash_games = {}
@@ -36,24 +55,29 @@ roulette_sessions = {}
 
 # --- БАЗОВЫЕ ФУНКЦИИ ---
 def get_balance(user_id):
-    cursor.execute("SELECT balance FROM players WHERE user_id = ?", (user_id,))
-    res = cursor.fetchone()
-    return res[0] if res else 0
+    uid = str(user_id)
+    if uid not in data["players"]:
+        return 0
+    return data["players"][uid].get("balance", 0)
 
 def add_balance(user_id, amount):
-    cursor.execute("UPDATE players SET balance = balance + ? WHERE user_id = ?", (amount, user_id))
-    db.commit()
+    uid = str(user_id)
+    if uid not in data["players"]:
+        data["players"][uid] = {"username": "Player", "balance": 0}
+    data["players"][uid]["balance"] += amount
+    save_data()
 
 def register_user(user):
-    cursor.execute("INSERT OR IGNORE INTO players (user_id, username) VALUES (?, ?)", (user.id, user.username or user.first_name))
-    db.commit()
+    uid = str(user.id)
+    if uid not in data["players"]:
+        data["players"][uid] = {"username": user.username or user.first_name, "balance": 1000}
+        save_data()
 
 def get_history_roulette():
-    cursor.execute("SELECT number, color FROM roulette_history ORDER BY id DESC LIMIT 15")
-    history = cursor.fetchall()
-    if not history: return "История пуста."
+    if not data["history"]: return "История пуста."
     res = []
-    for num, color in history:
+    for item in data["history"][-15:]: # Последние 15
+        num, color = item["number"], item["color"]
         sym = "🟢" if color == "green" else ("🔴" if color == "red" else "⚫️")
         res.append(f"{sym}{num}")
     return " ".join(res)
@@ -69,30 +93,35 @@ def main_menu():
     )
     return kb
 
-# --- АДМИНСКАЯ КОМАНДА /give ---
+# --- АДМИНКА ---
 @bot.message_handler(commands=['give'])
 def admin_give(message):
-    # Проверка, что пишет именно админ
-    if message.from_user.id != ADMIN_ID:
-        bot.reply_to(message, "❌ У вас нет прав на эту команду.")
-        return
-    
+    if message.from_user.id != ADMIN_ID: return bot.reply_to(message, "❌ У вас нет прав.")
     try:
-        # Формат: /give ID СУММА
         args = message.text.split()[1:]
-        target_id = int(args[0])
+        target_id = str(int(args[0]))
         amount = int(args[1])
-        
-        # Проверяем, есть ли такой игрок в базе, если нет - создаем
-        cursor.execute("SELECT user_id FROM players WHERE user_id = ?", (target_id,))
-        if not cursor.fetchone():
-            cursor.execute("INSERT INTO players (user_id, username, balance) VALUES (?, ?, ?)", (target_id, "Player", 0))
-            db.commit()
-            
-        add_balance(target_id, amount)
-        bot.reply_to(message, f"✅ Выдано {amount} 🪙 игроку с ID {target_id}.")
-    except Exception as e:
-        bot.reply_to(message, "❌ Ошибка. Формат: `/give ID СУММА`\nПример: `/give 8211650013 100000`", parse_mode="Markdown")
+        if target_id not in data["players"]:
+            data["players"][target_id] = {"username": "Player", "balance": 0}
+        data["players"][target_id]["balance"] += amount
+        save_data()
+        bot.reply_to(message, f"✅ Выдано {amount} 🪙 игроку {target_id}.")
+    except:
+        bot.reply_to(message, "❌ Формат: `/give ID СУММА`", parse_mode="Markdown")
+
+@bot.message_handler(commands=['createpromo'])
+def create_promo(message):
+    if message.from_user.id != ADMIN_ID: return
+    try:
+        args = message.text.split()[1:]
+        code = args[0].upper()
+        amount = int(args[1])
+        uses = int(args[2])
+        data["promos"][code] = {"amount": amount, "uses_left": uses}
+        save_data()
+        bot.reply_to(message, f"✅ Промокод `{code}` создан!\nНаграда: {amount} 🪙\nАктиваций: {uses}", parse_mode="Markdown")
+    except:
+        bot.reply_to(message, "❌ Формат: `/createpromo КОД СУММА АКТИВАЦИИ`", parse_mode="Markdown")
 
 # --- СТАРТ И ПОМОЩЬ ---
 @bot.message_handler(commands=["start"])
@@ -111,30 +140,7 @@ def send_help(message_or_call):
         bot.answer_callback_query(message_or_call.id)
     else:
         chat_id = message_or_call.chat.id
-
-    help_text = (
-        "📖 **ПОЛНАЯ ИНСТРУКЦИЯ MON1 CASINO**\n\n"
-        "🪙 **Валюта:** Mon1Coin\n\n"
-        "**👤 БАЗОВЫЕ КОМАНДЫ**\n"
-        "`б` или `баланс` — баланс\n"
-        "`профиль` — ваш ID и баланс\n\n"
-        "**📜 ИСТОРИЯ**\n"
-        "`лог` — последние 15 чисел рулетки\n"
-        "`история` — история ваших переводов\n\n"
-        "**💸 ПЕРЕВОДЫ**\n"
-        "`перевод 100 @username`\n\n"
-        "**🎁 ПРОМОКОДЫ**\n"
-        "Просто напишите код (например: `MONIX`).\n\n"
-        "**🎮 БЫСТРЫЙ ЗАПУСК ИГР**\n"
-        "`мины 1000` — сапер\n"
-        "`краш 500` — краш\n\n"
-        "**🎰 РУЛЕТКА (МУЛЬТИСТАВКИ)**\n"
-        "Пишите ставки: `100 5, 200 10-15, 50 red`.\n"
-        "Затем напишите **`го`**, чтобы крутить.\n\n"
-        "**👑 ДЛЯ АДМИНА**\n"
-        "`/createpromo КОД СУММА АКТИВАЦИИ`\n"
-        "`/give ID СУММА` — выдать деньги"
-    )
+    help_text = "📖 **ПОЛНАЯ ИНСТРУКЦИЯ MON1 CASINO**\n\n🪙 **Валюта:** Mon1Coin\n\n**👤 БАЗОВЫЕ КОМАНДЫ**\n`б` или `баланс` — баланс\n`профиль` — ваш ID\n\n**📜 ИСТОРИЯ**\n`лог` — последние числа\n`история` — переводы\n\n**💸 ПЕРЕВОДЫ**\n`перевод 100 @username`\n\n**🎁 ПРОМОКОДЫ**\nПросто напишите код.\n\n**🎮 БЫСТРЫЙ ЗАПУСК**\n`мины 1000` — сапер\n`краш 500` — краш\n\n**🎰 РУЛЕТКА**\nПишите ставки: `100 5, 200 10-15, 50 red`.\nЗатем `го`.\n\n**👑 АДМИН**\n`/createpromo КОД СУММА АКТИВАЦИИ`\n`/give ID СУММА`"
     bot.send_message(chat_id, help_text, parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data == "profile")
@@ -156,16 +162,10 @@ def mines_menu(call):
     bot.send_message(call.message.chat.id, "💣 Введите ставку и количество мин в чат.\nПример: `мины 1000 3` (ставка 1000, 3 мины).", parse_mode="Markdown")
 
 def start_mines_game(user_id, chat_id, bet, bombs, msg_id=None):
-    if get_balance(user_id) < bet:
-        return bot.send_message(chat_id, "❌ Недостаточно Mon1Coin!")
-    if bombs not in MULTIPLIERS:
-        return bot.send_message(chat_id, "❌ Доступно мин: 2, 3, 5 или 9.")
-    
+    if get_balance(user_id) < bet: return bot.send_message(chat_id, "❌ Недостаточно Mon1Coin!")
+    if bombs not in MULTIPLIERS: return bot.send_message(chat_id, "❌ Доступно мин: 2, 3, 5 или 9.")
     add_balance(user_id, -bet)
-    mines_games[user_id] = {
-        "bet": bet, "bombs": bombs, "mines": set(random.sample(range(25), bombs)),
-        "opened": set(), "finished": False
-    }
+    mines_games[user_id] = {"bet": bet, "bombs": bombs, "mines": set(random.sample(range(25), bombs)), "opened": set(), "finished": False}
     text = mines_text(user_id)
     kb = mines_kb(user_id)
     if msg_id: bot.edit_message_text(text, chat_id, msg_id, reply_markup=kb)
@@ -188,8 +188,7 @@ def mines_kb(user_id):
             sym = "💎" if i in g["opened"] else ("💣" if g["finished"] and i in g["mines"] else ("▫️" if g["finished"] else "❔"))
             row.append(InlineKeyboardButton(sym, callback_data=f"mcell_{i}"))
         kb.row(*row)
-    if not g["finished"] and g["opened"]:
-        kb.row(InlineKeyboardButton("⭐ ЗАБРАТЬ", callback_data="mcashout"))
+    if not g["finished"] and g["opened"]: kb.row(InlineKeyboardButton("⭐ ЗАБРАТЬ", callback_data="mcashout"))
     return kb
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("mcell_") or call.data == "mcashout")
@@ -197,7 +196,6 @@ def mines_play(call):
     user_id = call.from_user.id
     g = mines_games.get(user_id)
     if not g or g["finished"]: return
-
     if call.data == "mcashout":
         mult = MULTIPLIERS[g["bombs"]] ** len(g["opened"])
         reward = math.floor(g["bet"] * mult)
@@ -205,7 +203,6 @@ def mines_play(call):
         g["finished"] = True
         bot.edit_message_text(f"🏆 Ты забрал {reward} 🪙!", call.message.chat.id, call.message.message_id, reply_markup=mines_kb(user_id))
         return
-
     idx = int(call.data.split("_")[1])
     if idx in g["mines"]:
         g["finished"] = True
@@ -221,19 +218,14 @@ def crash_menu(call):
     bot.send_message(call.message.chat.id, "🚀 Введите ставку в чат.\nПример: `краш 1000`", parse_mode="Markdown")
 
 def start_crash_game(user_id, chat_id, bet, msg_id=None):
-    if get_balance(user_id) < bet:
-        return bot.send_message(chat_id, "❌ Недостаточно Mon1Coin!")
-    
+    if get_balance(user_id) < bet: return bot.send_message(chat_id, "❌ Недостаточно Mon1Coin!")
     add_balance(user_id, -bet)
     crash_point = round(random.uniform(1.1, 5.0), 2)
     crash_games[user_id] = {"bet": bet, "crash_point": crash_point, "current": 1.0, "active": True}
-    
     kb = InlineKeyboardMarkup().add(InlineKeyboardButton("💰 ЗАБРАТЬ", callback_data="crash_cashout"))
     text = f"🚀 CRASH\nСтавка: {bet} 🪙\nКоэффициент: x1.00\n\nУспей забрать!"
-    
     if msg_id: msg = bot.edit_message_text(text, chat_id, msg_id, reply_markup=kb)
     else: msg = bot.send_message(chat_id, text, reply_markup=kb)
-        
     threading.Thread(target=crash_loop, args=(user_id, chat_id, msg.message_id)).start()
 
 def crash_loop(user_id, chat_id, msg_id):
@@ -242,7 +234,6 @@ def crash_loop(user_id, chat_id, msg_id):
         g = crash_games.get(user_id)
         if not g or not g["active"]: break
         g["current"] = round(g["current"] + 0.1, 2)
-        
         if g["current"] >= g["crash_point"]:
             g["active"] = False
             bot.edit_message_text(f"💥 КРАШ на x{g['crash_point']:.2f}!\nТы потерял {g['bet']} 🪙.", chat_id, msg_id, reply_markup=None)
@@ -250,7 +241,7 @@ def crash_loop(user_id, chat_id, msg_id):
         try:
             bot.edit_message_text(f"🚀 CRASH\nСтавка: {g['bet']} 🪙\nКоэффициент: x{g['current']:.2f}\n\nУспей забрать!", 
                                   chat_id, msg_id, reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("💰 ЗАБРАТЬ", callback_data="crash_cashout")))
-        except Exception: pass
+        except: pass
         time.sleep(1)
 
 @bot.callback_query_handler(func=lambda call: call.data == "crash_cashout")
@@ -277,13 +268,12 @@ def roul_menu(call):
 def process_roulette_session(user_id, chat_id):
     session = roulette_sessions[user_id]
     win_num = random.randint(0, 36)
-    if win_num == 0: win_color = "green"
-    elif 1 <= win_num <= 18: win_color = "red"
-    else: win_color = "black"
-    
+    win_color = "green" if win_num == 0 else ("red" if 1 <= win_num <= 18 else "black")
     sym = {"green": "🟢", "red": "🔴", "black": "⚫️"}[win_color]
-    cursor.execute("INSERT INTO roulette_history (number, color) VALUES (?, ?)", (win_num, win_color))
-    db.commit()
+    
+    data["history"].append({"number": win_num, "color": win_color})
+    if len(data["history"]) > 100: data["history"] = data["history"][-100:]
+    save_data()
     
     total_win = 0
     results = []
@@ -292,7 +282,6 @@ def process_roulette_session(user_id, chat_id):
         bet, target = bet_data
         win = False
         mult = 0
-        
         if "-" in target:
             try:
                 start, end = map(int, target.split("-"))
@@ -327,19 +316,6 @@ def process_roulette_session(user_id, chat_id):
         f"🪙 Ваш баланс: {get_balance(user_id)}\n\n"
         f"📜 История: {get_history_roulette()}", parse_mode="Markdown")
 
-# --- СОЗДАНИЕ ПРОМОКОДОВ ---
-@bot.message_handler(commands=['createpromo'])
-def create_promo(message):
-    if message.from_user.id != ADMIN_ID: return
-    try:
-        args = message.text.split()[1:]
-        code, amount, uses = args[0].upper(), int(args[1]), int(args[2])
-        cursor.execute("INSERT OR REPLACE INTO promos (code, amount, uses_left) VALUES (?, ?, ?)", (code, amount, uses))
-        db.commit()
-        bot.reply_to(message, f"✅ Промокод `{code}` создан!\nНаграда: {amount} 🪙\nАктиваций: {uses}", parse_mode="Markdown")
-    except:
-        bot.reply_to(message, "❌ Формат: `/createpromo КОД СУММА АКТИВАЦИИ`", parse_mode="Markdown")
-
 # --- ОБРАБОТЧИК ТЕКСТА ---
 @bot.message_handler(content_types=['text'])
 def handle_all_text(message):
@@ -354,25 +330,11 @@ def handle_all_text(message):
     if text in ["профиль", "п"]:
         bot.reply_to(message, f"👤 ID: {user_id}\n🪙 Баланс: {get_balance(user_id)} Mon1Coin")
         return
-
     if text == "лог":
-        bot.reply_to(message, f"📜 **Последние 15 чисел рулетки:**\n{get_history_roulette()}", parse_mode="Markdown")
+        bot.reply_to(message, f"📜 **Последние 15 чисел:**\n{get_history_roulette()}", parse_mode="Markdown")
         return
-        
     if text == "история":
-        cursor.execute("SELECT sender_id, sender_name, receiver_name, amount, timestamp FROM transfers WHERE sender_id = ? OR receiver_id = ? ORDER BY id DESC LIMIT 10", (user_id, user_id))
-        transfers = cursor.fetchall()
-        if not transfers:
-            bot.reply_to(message, "📭 У вас пока нет истории переводов.")
-            return
-        hist_text = "📜 **История ваших переводов:**\n\n"
-        for s_id, s_name, r_name, amount, ts in transfers:
-            date_str = ts.split()[0]
-            if s_id == user_id:
-                hist_text += f"📤 {date_str}: Вы перевели **{amount}** 🪙 для @{r_name}\n"
-            else:
-                hist_text += f"📥 {date_str}: Вам перевел **{amount}** 🪙 от @{s_name}\n"
-        bot.reply_to(message, hist_text, parse_mode="Markdown")
+        bot.reply_to(message, "📜 История переводов пока не ведется в этой версии (в разработке).")
         return
 
     if parts[0] in ["мины", "mines"] and len(parts) >= 2:
@@ -390,50 +352,50 @@ def handle_all_text(message):
             amount = int(parts[1])
             target = parts[2].replace("@", "")
             if amount <= 0 or get_balance(user_id) < amount: return bot.reply_to(message, "❌ Недостаточно средств!")
-            cursor.execute("SELECT user_id, username FROM players WHERE LOWER(username) = LOWER(?)", (target,))
-            receiver = cursor.fetchone()
-            if not receiver: return bot.reply_to(message, "❌ Получатель не найден.")
-            receiver_id, receiver_name = receiver
-            if receiver_id == user_id: return bot.reply_to(message, "❌ Нельзя перевести себе!")
+            
+            # Ищем игрока по юзернейму в JSON
+            target_id = None
+            for uid, pdata in data["players"].items():
+                if pdata.get("username", "").lower() == target.lower():
+                    target_id = uid
+                    break
+                    
+            if not target_id: return bot.reply_to(message, "❌ Получатель не найден.")
+            if target_id == str(user_id): return bot.reply_to(message, "❌ Нельзя перевести себе!")
             
             add_balance(user_id, -amount)
-            add_balance(receiver_id, amount)
-            cursor.execute("INSERT INTO transfers (sender_id, sender_name, receiver_id, receiver_name, amount) VALUES (?, ?, ?, ?, ?)",
-                           (user_id, message.from_user.username or message.from_user.first_name, receiver_id, receiver_name, amount))
-            db.commit()
+            add_balance(int(target_id), amount)
             
-            bot.reply_to(message, f"✅ Переведено {amount} 🪙 пользователю @{receiver_name}!")
-            try: bot.send_message(receiver_id, f"💸 Вам перевели {amount} 🪙 от @{message.from_user.username or message.from_user.first_name}!")
+            bot.reply_to(message, f"✅ Переведено {amount} 🪙 пользователю @{target}!")
+            try: bot.send_message(int(target_id), f"💸 Вам перевели {amount} 🪙!")
             except: pass
             return
         except: return bot.reply_to(message, "❌ Неверный формат перевода.")
 
     if len(parts) == 1 and len(text) > 3 and text.isalnum():
         code = text.upper()
-        cursor.execute("SELECT amount, uses_left FROM promos WHERE code = ?", (code,))
-        promo = cursor.fetchone()
-        if promo:
-            amount, uses_left = promo
-            if uses_left <= 0: return bot.reply_to(message, "❌ Промокод не работает.")
-            cursor.execute("SELECT 1 FROM promo_activations WHERE user_id = ? AND code = ?", (user_id, code))
-            if cursor.fetchone(): return bot.reply_to(message, "❌ Вы уже активировали этот промокод!")
-            add_balance(user_id, amount)
-            cursor.execute("UPDATE promos SET uses_left = uses_left - 1 WHERE code = ?", (code,))
-            cursor.execute("INSERT INTO promo_activations (user_id, code) VALUES (?, ?)", (user_id, code))
-            db.commit()
-            return bot.reply_to(message, f"🎉 Промокод активирован! +{amount} 🪙")
+        if code in data["promos"]:
+            promo = data["promos"][code]
+            if promo["uses_left"] <= 0: return bot.reply_to(message, "❌ Промокод не работает.")
+            if [str(user_id), code] in data["activations"]: return bot.reply_to(message, "❌ Вы уже активировали этот промокод!")
+            
+            add_balance(user_id, promo["amount"])
+            promo["uses_left"] -= 1
+            data["activations"].append([str(user_id), code])
+            save_data()
+            return bot.reply_to(message, f"🎉 Промокод активирован! +{promo['amount']} 🪙")
 
     if text == "го":
         if user_id in roulette_sessions and roulette_sessions[user_id]["bets"]:
             process_roulette_session(user_id, message.chat.id)
             del roulette_sessions[user_id]
-        else: bot.reply_to(message, "❌ У вас нет активных ставок. Напишите ставки, затем `го`.")
+        else: bot.reply_to(message, "❌ У вас нет активных ставок.")
         return
 
     if text == "отмена":
         if user_id in roulette_sessions:
             del roulette_sessions[user_id]
-            bot.reply_to(message, "✅ Сессия ставок очищена.")
+            bot.reply_to(message, "✅ Сессия очищена.")
         return
 
     potential_bets = re.findall(r'(\d+)\s+([a-zA-Zа-яА-Я0-9\-]+)', text)
@@ -453,5 +415,5 @@ def handle_all_text(message):
             bot.reply_to(message, f"✅ Добавлено: {len(added)}\nНапишите **`го`**, чтобы крутить! (Баланс: {get_balance(user_id)})", parse_mode="Markdown")
         return
 
-print("MON1 CASINO запущен!")
+print("MON1 CASINO запущен (JSON Storage)!")
 bot.infinity_polling(skip_pending=True)
