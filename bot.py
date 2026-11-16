@@ -64,7 +64,7 @@ def register_user(user):
         data["players"][uid] = {
             "username": user.username or user.first_name, 
             "balance": 1000,
-            "last_bonus": 0 # Время последнего бонуса
+            "last_bonus": 0
         }
         save_data()
 
@@ -84,7 +84,7 @@ def main_menu():
         InlineKeyboardButton("🚀 CRASH", callback_data="game_crash"),
         InlineKeyboardButton("🎰 РУЛЕТКА", callback_data="game_roulette"),
         InlineKeyboardButton("👤 ПРОФИЛЬ", callback_data="profile"),
-        InlineKeyboardButton("🎁 БОНУС", callback_data="bonus_menu"), # Новая кнопка
+        InlineKeyboardButton("🎁 БОНУС", callback_data="bonus_menu"),
         InlineKeyboardButton("❓ ПОМОЩЬ", callback_data="help_menu"),
         InlineKeyboardButton("⭐ ДОНАТ", callback_data="donate_menu"),
         InlineKeyboardButton("🏆 ТОП", callback_data="top_menu")
@@ -112,12 +112,12 @@ def daily_bonus(event):
     uid = str(user_id)
     if uid not in data["players"]:
         register_user(event.from_user)
-        if uid not in data["players"]: # Если всё еще нет, создаем
+        if uid not in data["players"]:
             data["players"][uid] = {"username": "Player", "balance": 1000, "last_bonus": 0}
 
     current_time = int(time.time())
     last_bonus = data["players"][uid].get("last_bonus", 0)
-    cooldown = 24 * 60 * 60 # 24 часа в секундах
+    cooldown = 24 * 60 * 60
 
     if current_time - last_bonus < cooldown:
         remaining = cooldown - (current_time - last_bonus)
@@ -133,6 +133,21 @@ def daily_bonus(event):
     save_data()
 
     bot.send_message(chat_id, f"🎁 **ЕЖЕДНЕВНЫЙ БОНУС!**\n\nВы получили: **+{bonus_amount} Mon1Coin** 🪙\nТекущий баланс: {get_balance(user_id)}", parse_mode="Markdown")
+
+# --- НОВАЯ КОМАНДА: ВАЙП БАЛАНСОВ ---
+@bot.message_handler(commands=['wipe'])
+def admin_wipe(message):
+    if message.from_user.id not in ADMIN_IDS:
+        return bot.reply_to(message, "❌ У вас нет прав.")
+    
+    count = 0
+    for uid, pdata in data["players"].items():
+        if pdata.get("balance", 0) > 1000:
+            pdata["balance"] = 1000
+            count += 1
+            
+    save_data()
+    bot.reply_to(message, f"♻️ **Экономика очищена!**\nБалансы {count} игроков сброшены до 1000 Mon1Coin.", parse_mode="Markdown")
 
 # --- ПОМОЩЬ ---
 @bot.callback_query_handler(func=lambda call: call.data == "help_menu")
@@ -170,7 +185,8 @@ def send_help_text(chat_id):
         "**👑 АДМИН**\n"
         "`/createpromo КОД СУММА АКТИВАЦИИ`\n"
         "`/give ID СУММА`\n"
-        "`/reset ID`"
+        "`/reset ID`\n"
+        "`/wipe` — сбросить балансы всех до 1000"
     )
     try:
         bot.send_message(chat_id, help_text, parse_mode="Markdown")
@@ -369,7 +385,6 @@ def handle_all_text(message):
     if message.text.startswith('/'): return
     text = message.text.lower().strip(); parts = text.split(); user_id = message.from_user.id
     
-    # Проверка на команды, которые уже обрабатываются в других местах (чтобы не срабатывали дважды)
     if text in ["б", "баланс", "профиль", "п", "лог", "топ", "top", "помощь", "help", "бонус", "bonus"]: return
 
     if parts[0] in ["мины", "mines"] and len(parts) >= 2:
@@ -450,5 +465,5 @@ def handle_all_text(message):
             return
         except ValueError: return bot.reply_to(message, "❌ Первое слово должно быть суммой. Пример: `1000 на 5`")
 
-print("MON1 CASINO (Bonus Edition) запущен!")
+print("MON1 CASINO (Wipe Edition) запущен!")
 bot.infinity_polling(skip_pending=True)
