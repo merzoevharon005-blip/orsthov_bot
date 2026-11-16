@@ -136,7 +136,7 @@ def chats_cmd(message):
     text = (
         "💬 **Наши чаты и канал**\n\n"
         "📢 **Канал:** https://t.me/mon1bots\n"
-        "💬 **Чат:** https://t.me/mon1bots\n\n"
+        "💬 **Чат:** https://t.me/mon1not\n\n"
         "Подписывайтесь, чтобы не пропустить обновления и общаться с другими игроками!"
     )
     bot.reply_to(message, text, parse_mode="Markdown")
@@ -530,7 +530,7 @@ def help_cmd(message):
         "**👑 УПРАВЛЕНИЕ**\n`переименовать клан ИМЯ`\n`назначить РОЛЬ ник`\n`кикнуть ник`\n\n"
         "**💳 ДОНАТ**\n1 ⭐ = 500 Mon1Coin\n`/donate`\n\n"
         "**⚙️ АДМИН**\n`/give ИГРОВОЙ_ID СУММА`\n`/reset ИГРОВОЙ_ID`\n`/wipe`\n`/createpromo КОД СУММА ЮЗЫ`\n\n"
-        "📢 **Канал и чат:** @mon1bots"
+        "📢 **Канал:** @mon1bots\n💬 **Чат:** @mon1not"
     )
     bot.reply_to(message, text, parse_mode="Markdown")
 
