@@ -54,7 +54,7 @@ def get_balance(user_id):
 def add_balance(user_id, amount):
     uid = str(user_id)
     if uid not in data["players"]:
-        data["players"][uid] = {"username": "Player", "balance": 0}
+        data["players"][uid] = {"username": "Player", "balance": 0, "last_bonus": 0}
     data["players"][uid]["balance"] += amount
     save_data()
 
@@ -244,7 +244,7 @@ def send_help_text(chat_id):
         "`500 на red`\n"
         "`300 на 11-14`\n\n"
         "**🎡 КОЛЕСО**\n"
-        "Нажмите кнопку в меню. Ставка 100 🪙.\n\n"
+        "Нажмите кнопку в меню. Ставка 100 🪙. Можно уйти в минус!\n\n"
         "**👑 АДМИН**\n"
         "`/createpromo КОД СУММА АКТИВАЦИИ`\n"
         "`/give ID СУММА`\n"
@@ -279,7 +279,7 @@ def send_top_text(chat_id, msg_id=None):
     else:
         bot.send_message(chat_id, text, parse_mode="Markdown")
 
-# --- CRASH ---
+# --- CRASH (ДО 100x) ---
 @bot.callback_query_handler(func=lambda call: call.data == "game_crash")
 def crash_menu(call):
     bot.answer_callback_query(call.id)
