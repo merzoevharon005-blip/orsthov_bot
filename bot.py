@@ -30,7 +30,6 @@ def load_data():
                 loaded = json.load(f)
                 for key in loaded:
                     data[key] = loaded[key]
-                print("✅ База данных загружена.")
         except Exception as e:
             print(f"⚠️ Ошибка загрузки: {e}")
 
@@ -40,56 +39,35 @@ def save_data():
 
 load_data()
 
-# --- ИСПРАВЛЕНИЕ ID (МИГРАЦИЯ) ---
+# --- ИСПРАВЛЕНИЕ ID ---
 def migrate_ids():
     global data
     changed = False
-    current_max = 0
-    
-    # 1. Ищем максимальный существующий ID
-    for pdata in data["players"].values():
-        sid = pdata.get("short_id", 0)
-        if isinstance(sid, int) and sid > current_max:
-            current_max = sid
-            
-    # 2. Проверяем next_id (чтобы он был больше максимального)
+    current_max = max([p.get("short_id", 0) for p in data["players"].values() if isinstance(p.get("short_id"), int)], default=0)
     if data.get("next_id", 1) <= current_max:
         data["next_id"] = current_max + 1
-
-    # 3. Выдаем ID тем, у кого их нет или они равны 0
     for uid, pdata in data["players"].items():
         if "short_id" not in pdata or pdata["short_id"] == 0 or pdata["short_id"] == "0":
             pdata["short_id"] = data["next_id"]
             data["next_id"] += 1
             changed = True
-            
     if changed:
         save_data()
-        print("✅ Всем игрокам выданы уникальные ID.")
+        print("✅ ID обновлены.")
 
-# Запускаем миграцию при старте
 migrate_ids()
-
 bot = telebot.TeleBot(TOKEN)
-
-mines_games = {}
-crash_games = {}
+mines_games, crash_games = {}, {}
 
 # --- БАЗОВЫЕ ФУНКЦИИ ---
 def get_balance(user_id):
-    uid = str(user_id)
-    if uid not in data["players"]: return 0
-    return data["players"][uid].get("balance", 0)
+    return data["players"].get(str(user_id), {}).get("balance", 0)
 
 def get_nick(user_id):
-    uid = str(user_id)
-    if uid not in data["players"]: return "Player"
-    return data["players"][uid].get("username", "Player")
+    return data["players"].get(str(user_id), {}).get("username", "Player")
 
 def get_user_short_id(user_id):
-    uid = str(user_id)
-    if uid not in data["players"]: return "0"
-    return data["players"][uid].get("short_id", "0")
+    return data["players"].get(str(user_id), {}).get("short_id", "0")
 
 def add_balance(user_id, amount):
     uid = str(user_id)
@@ -100,32 +78,22 @@ def add_balance(user_id, amount):
 def register_user(user):
     uid = str(user.id)
     if uid not in data["players"]:
-        short_id = data["next_id"]
-        data["next_id"] += 1
-        data["players"][uid] = {
-            "username": user.username or user.first_name,
-            "balance": 1000, "last_bonus": 0, "short_id": short_id,
-            "clan_id": None, "weapon": 1, "armor": 1
-        }
+        sid = data["next_id"]; data["next_id"] += 1
+        data["players"][uid] = {"username": user.username or user.first_name, "balance": 1000, "last_bonus": 0, "short_id": sid, "clan_id": None, "weapon": 1, "armor": 1}
         save_data()
 
 def register_user_by_id(uid):
     if uid not in data["players"]:
-        short_id = data["next_id"]
-        data["next_id"] += 1
-        data["players"][uid] = {
-            "username": "Player", "balance": 1000, "last_bonus": 0, 
-            "short_id": short_id, "clan_id": None, "weapon": 1, "armor": 1
-        }
+        sid = data["next_id"]; data["next_id"] += 1
+        data["players"][uid] = {"username": "Player", "balance": 1000, "last_bonus": 0, "short_id": sid, "clan_id": None, "weapon": 1, "armor": 1}
         save_data()
 
 def get_history_roulette():
-    if not data["history"]: return "История пуста."
+    if not data["history"]: return "Пусто."
     res = []
     for item in data["history"][-15:]:
-        num, color = item["number"], item["color"]
-        sym = "🟢" if color == "green" else ("🔴" if color == "red" else "⚫️")
-        res.append(f"{sym}{num}")
+        sym = "🟢" if item["color"] == "green" else ("🔴" if item["color"] == "red" else "⚫️")
+        res.append(f"{sym}{item['number']}")
     return " ".join(res)
 
 def main_menu():
@@ -146,48 +114,30 @@ def main_menu():
 
 def send_help_text(chat_id, msg_id=None):
     help_text = (
-        "📖 **ИНСТРУКЦИЯ MON1 CASINO**\n\n"
-        "🪙 **Валюта:** Mon1Coin\n\n"
-        "**👤 ПРОФИЛЬ И БАЛАНС**\n"
-        "`б` или `баланс` — баланс\n"
-        "`профиль` — ваш ID и статы\n"
-        "`сменить ник НИК` — изменить имя\n"
-        "`бонус` — от 1000 до 2000 раз в 24 часа\n\n"
-        "**🎮 ИГРЫ**\n"
-        "`мины 1000 3` — сапер (1000, 3 мины)\n"
-        "`краш 500` — краш\n"
-        "`1000 на 1 на 5` — рулетка (на число/цвет/диапазон)\n\n"
-        "**🛡 КЛАНЫ**\n"
-        "Создать клан: 5000 🪙\n"
-        "Вступить: по ID клана\n"
-        "Лимит: 15 игроков\n\n"
-        "**⚔️ МАГАЗИН**\n"
-        "Оружие/Броня: 2000 🪙\n\n"
-        "**👑 АДМИН**\n"
-        "`/give ID СУММА`\n`/reset ID`\n`/wipe`\n`/createpromo КОД СУММА ЮЗЫ`"
+        "📖 **ИНСТРУКЦИЯ**\n\n"
+        "`б` - баланс\n`профиль` - ваш ID\n`сменить ник ИМЯ`\n`бонус`\n\n"
+        "**ИГРЫ**\n`мины 1000 3`\n`краш 1000`\n`1000 на 1 на 5`\n\n"
+        "**КЛАНЫ**\nСоздать: 5000\nВступить: по ID\n\n"
+        "**МАГАЗИН**\nОружие/Броня: 2000"
     )
-    if msg_id:
-        bot.edit_message_text(help_text, chat_id, msg_id, reply_markup=main_menu(), parse_mode="Markdown")
-    else:
-        bot.send_message(chat_id, help_text, reply_markup=main_menu(), parse_mode="Markdown")
+    try:
+        if msg_id: bot.edit_message_text(help_text, chat_id, msg_id, reply_markup=main_menu(), parse_mode="Markdown")
+        else: bot.send_message(chat_id, help_text, reply_markup=main_menu(), parse_mode="Markdown")
+    except: pass
 
 # --- ОБРАБОТЧИКИ ---
 @bot.message_handler(commands=["start"])
 def start(message):
     register_user(message.from_user)
-    bot.send_message(message.chat.id, f"🎰 ДОБРО ПОЖАЛОВАТЬ В MON1 CASINO RPG!\n\n🪙 Твой баланс: {get_balance(message.from_user.id)} Mon1Coin\n\nВыбирай действие:", reply_markup=main_menu())
+    bot.send_message(message.chat.id, f"🎰 ДОБРО ПОЖАЛОВАТЬ!\n🪙 Баланс: {get_balance(message.from_user.id)}\nВыбирай действие:", reply_markup=main_menu())
 
 @bot.callback_query_handler(func=lambda call: call.data == "profile")
 def profile_callback(call):
     bot.answer_callback_query(call.id)
     uid = call.from_user.id
     p = data["players"].get(str(uid), {})
-    clan_name = "Нет" if not p.get("clan_id") else data["clans"].get(str(p["clan_id"]), {}).get("name", "Нет")
-    text = (
-        f"👤 **Профиль**\n\n🆔 ID: `{p.get('short_id')}`\n📛 Ник: {get_nick(uid)}\n"
-        f"🪙 Баланс: {get_balance(uid)} Mon1Coin\n🛡 Клан: {clan_name}\n"
-        f"⚔️ Оружие ур.{p.get('weapon', 1)}\n🥋 Броня ур.{p.get('armor', 1)}"
-    )
+    c_name = "Нет" if not p.get("clan_id") else data["clans"].get(str(p["clan_id"]), {}).get("name", "Нет")
+    text = f"👤 **Профиль**\n🆔 ID: `{p.get('short_id')}`\n📛 Ник: {get_nick(uid)}\n🪙 Баланс: {get_balance(uid)}\n🛡 Клан: {c_name}\n⚔️ Оружие: ур.{p.get('weapon', 1)}\n🥋 Броня: ур.{p.get('armor', 1)}"
     bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=main_menu(), parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data == "help_menu")
@@ -195,19 +145,22 @@ def help_callback(call):
     bot.answer_callback_query(call.id)
     send_help_text(call.message.chat.id, call.message.message_id)
 
+@bot.callback_query_handler(func=lambda call: call.data == "back")
+def back(call):
+    bot.edit_message_text("🎰 МЕНЮ", call.message.chat.id, call.message.message_id, reply_markup=main_menu())
+
 @bot.callback_query_handler(func=lambda call: call.data == "bonus_menu")
 def bonus_callback(call):
     bot.answer_callback_query(call.id)
     uid = str(call.from_user.id)
     now, last, cd = int(time.time()), data["players"].get(uid, {}).get("last_bonus", 0), 86400
-    if now - last < cd:
-        msg = f"⏳ Бонус через: **{(cd-(now-last))//3600} ч. {((cd-(now-last))%3600)//60} мин.**"
+    if now - last < cd: msg = f"⏳ Бонус через: **{(cd-(now-last))//3600} ч. {((cd-(now-last))%3600)//60} мин.**"
     else:
         amt = random.randint(1000, 2000)
         add_balance(uid, amt)
         data["players"][uid]["last_bonus"] = now
         save_data()
-        msg = f"🎁 **БОНУС!**\nВы получили: **+{amt} Mon1Coin** 🪙"
+        msg = f"🎁 **БОНУС!**\n+{amt} Mon1Coin 🪙"
     bot.edit_message_text(msg, call.message.chat.id, call.message.message_id, reply_markup=main_menu(), parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data == "top_menu")
@@ -217,10 +170,7 @@ def top_callback(call):
     text = "🏆 **ТОП-10**\n\n" + "".join([f"{i}. {p.get('username','?')} — {p.get('balance',0)} 🪙\n" for i, (u, p) in enumerate(s, 1)])
     bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=main_menu(), parse_mode="Markdown")
 
-@bot.callback_query_handler(func=lambda call: call.data == "back")
-def back(call):
-    bot.edit_message_text("🎰 ГЛАВНОЕ МЕНЮ", call.message.chat.id, call.message.message_id, reply_markup=main_menu())
-
+# --- КЛАНЫ (ИСПРАВЛЕНО) ---
 @bot.callback_query_handler(func=lambda call: call.data == "clan_menu")
 def clan(call):
     bot.answer_callback_query(call.id); uid=str(call.from_user.id); p=data["players"].get(uid,{})
@@ -236,43 +186,68 @@ def clan(call):
 @bot.callback_query_handler(func=lambda call: call.data == "create_clan")
 def c_clan(call):
     bot.answer_callback_query(call.id)
-    if get_balance(call.from_user.id)<5000: return bot.answer_callback_query(call.id, "❌ Нужно 5000!", show_alert=True)
-    msg=bot.send_message(call.message.chat.id,"Введите имя клана (до 15 символов):")
+    if get_balance(call.from_user.id) < 5000:
+        return bot.send_message(call.message.chat.id, "❌ Недостаточно средств! Нужно 5000.")
+    
+    msg = bot.send_message(call.message.chat.id, "Введите имя клана (до 15 символов):")
     bot.register_next_step_handler(msg, save_clan)
+
 def save_clan(m):
-    uid=str(m.from_user.id); name=m.text.strip()[:15]
-    if not name or get_balance(uid)<5000: return bot.reply_to(m,"❌ Ошибка.")
-    cid=str(random.randint(1000,9999))
-    while cid in data["clans"]: cid=str(random.randint(1000,9999))
-    add_balance(uid,-5000); data["clans"][cid]={"name":name,"owner_id":uid,"owner_name":get_nick(uid)}; data["players"][uid]["clan_id"]=cid; data["clan_bosses"][cid]={"level":1,"hp":1000,"max_hp":1000}; save_data()
-    bot.reply_to(m,f"✅ Клан **{name}** создан! ID: `{cid}`", parse_mode="Markdown", reply_markup=main_menu())
+    try:
+        uid = str(m.from_user.id); name = m.text.strip()[:15]
+        if not name: return bot.reply_to(m, "❌ Имя не может быть пустым.")
+        if get_balance(uid) < 5000: return bot.reply_to(m, "❌ У вас нет 5000.")
+        
+        cid = str(random.randint(1000, 9999))
+        while cid in data["clans"]: cid = str(random.randint(1000, 9999))
+        
+        add_balance(uid, -5000)
+        data["clans"][cid] = {"name": name, "owner_id": uid, "owner_name": get_nick(uid)}
+        data["players"][uid]["clan_id"] = cid
+        data["clan_bosses"][cid] = {"level": 1, "hp": 1000, "max_hp": 1000}
+        save_data()
+        bot.reply_to(m, f"✅ Клан **{name}** создан! ID: `{cid}`", parse_mode="Markdown", reply_markup=main_menu())
+    except Exception as e:
+        bot.reply_to(m, "❌ Ошибка при создании клана.")
 
 @bot.callback_query_handler(func=lambda call: call.data == "join_clan_prompt")
 def j_clan(call):
     bot.answer_callback_query(call.id)
-    msg=bot.send_message(call.message.chat.id,"Введите ID клана:")
+    msg = bot.send_message(call.message.chat.id, "Введите ID клана:")
     bot.register_next_step_handler(msg, do_join)
-def do_join(m):
-    uid=str(m.from_user.id); cid=m.text.strip()
-    if cid not in data["clans"]: return bot.reply_to(m,"❌ Не найден.")
-    if len([x for x in data["players"].values() if x.get("clan_id")==cid])>=15: return bot.reply_to(m,"❌ Полон (15).")
-    data["players"][uid]["clan_id"]=cid; save_data()
-    bot.reply_to(m,f"✅ Вступил в **{data['clans'][cid]['name']}**!", parse_mode="Markdown", reply_markup=main_menu())
 
+def do_join(m):
+    try:
+        uid = str(m.from_user.id); cid = m.text.strip()
+        if cid not in data["clans"]: return bot.reply_to(m, "❌ Не найден.")
+        if len([x for x in data["players"].values() if x.get("clan_id") == cid]) >= 15: return bot.reply_to(m, "❌ Полон (15).")
+        
+        data["players"][uid]["clan_id"] = cid
+        save_data()
+        bot.reply_to(m, f"✅ Вступил в **{data['clans'][cid]['name']}**!", parse_mode="Markdown", reply_markup=main_menu())
+    except: bot.reply_to(m, "❌ Ошибка.")
+
+# --- МАГАЗИН (ИСПРАВЛЕНО) ---
 @bot.callback_query_handler(func=lambda call: call.data == "shop_menu")
 def shop(call):
-    bot.answer_callback_query(call.id); p=data["players"].get(str(call.from_user.id),{})
-    kb=InlineKeyboardMarkup(row_width=1).add(InlineKeyboardButton("🗡 Оружие (2000)", callback_data="buy_weapon"), InlineKeyboardButton("🛡 Броня (2000)", callback_data="buy_armor"), InlineKeyboardButton("⬅️ Назад", callback_data="back"))
-    text=f"⚔️ **Магазин**\n🗡 Оружие: ур.{p.get('weapon',1)}\n🛡 Броня: ур.{p.get('armor',1)}\n🪙 Баланс: {get_balance(call.from_user.id)}"
+    bot.answer_callback_query(call.id)
+    p = data["players"].get(str(call.from_user.id), {})
+    kb = InlineKeyboardMarkup(row_width=1).add(InlineKeyboardButton("🗡 Оружие (2000)", callback_data="buy_weapon"), InlineKeyboardButton("🛡 Броня (2000)", callback_data="buy_armor"), InlineKeyboardButton("⬅️ Назад", callback_data="back"))
+    text = f"⚔️ **Магазин**\n🗡 Оружие: ур.{p.get('weapon', 1)}\n🛡 Броня: ур.{p.get('armor', 1)}\n🪙 Баланс: {get_balance(call.from_user.id)}"
     bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=kb, parse_mode="Markdown")
-@bot.callback_query_handler(func=lambda call: call.data in ["buy_weapon","buy_armor"])
+
+@bot.callback_query_handler(func=lambda call: call.data in ["buy_weapon", "buy_armor"])
 def buy(call):
-    bot.answer_callback_query(call.id); uid=str(call.from_user.id)
-    if get_balance(uid)<2000: return bot.answer_callback_query(call.id,"❌ Мало денег!", show_alert=True)
-    add_balance(uid,-2000)
-    if call.data=="buy_weapon": data["players"][uid]["weapon"]+=1
-    else: data["players"][uid]["armor"]+=1
-    save_data(); shop(call)
+    bot.answer_callback_query(call.id)
+    uid = str(call.from_user.id)
+    if get_balance(uid) < 2000:
+        return bot.answer_callback_query(call.id, "❌ Мало денег!", show_alert=True)
+    
+    add_balance(uid, -2000)
+    if call.data == "buy_weapon": data["players"][uid]["weapon"] += 1
+    else: data["players"][uid]["armor"] += 1
+    save_data()
+    shop(call) # Обновляем меню магазина
 
 @bot.callback_query_handler(func=lambda call: call.data == "attack_boss")
 def boss(call):
@@ -288,6 +263,7 @@ def boss(call):
         msg=f"⚔️ Урон: {dmg}\nБосс бьет: {cd}"
     save_data(); bot.send_message(call.message.chat.id, msg, parse_mode="Markdown", reply_markup=main_menu())
 
+# --- ИГРЫ (CRASH, MINES) ---
 @bot.callback_query_handler(func=lambda call: call.data == "game_crash")
 def crash(call):
     bot.answer_callback_query(call.id)
@@ -373,6 +349,7 @@ def success(m):
         c=int(p.split("_")[2]); add_balance(m.from_user.id,c)
         bot.send_message(m.chat.id,f"🎉 +{c} 🪙")
 
+# --- АДМИНКА И ТЕКСТ ---
 @bot.message_handler(commands=['give'])
 def give(m):
     if m.from_user.id not in ADMIN_IDS: return
