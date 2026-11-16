@@ -53,9 +53,13 @@ def migrate_data():
             data["next_id"] += 1
             changed = True
         if "bank" not in pdata:
-            pdata["bank"] = 0
-            pdata["deposit"] = 0
-            pdata["deposit_start"] = 0
+            pdata["bank"] = 0; pdata["deposit"] = 0; pdata["deposit_start"] = 0; changed = True
+        # Поля для бизнеса
+        if "biz_territory" not in pdata:
+            pdata["biz_territory"] = 0 # 0 - нет бизнеса
+            pdata["biz_building"] = 1
+            pdata["biz_tax"] = 0
+            pdata["biz_last_collect"] = int(time.time())
             changed = True
             
     if changed: save_data()
@@ -63,6 +67,10 @@ def migrate_data():
 migrate_data()
 bot = telebot.TeleBot(TOKEN)
 MULT = {2: 1.10, 3: 1.15, 5: 1.25, 9: 1.45}
+
+# --- НАСТРОЙКИ БИЗНЕСА ---
+BIZ_TERRITORY_COST = {0: 10000, 1: 50000, 2: 250000, 3: 1000000, 4: 5000000, 5: 25000000}
+BIZ_BUILDING_COST = {1: 20000, 2: 100000, 3: 500000, 4: 2000000, 5: 10000000}
 
 # --- БАЗА ---
 def get_balance(user_id):
@@ -98,7 +106,8 @@ def register_user(user):
         data["players"][uid] = {
             "username": user.username or user.first_name, "balance": 1000, 
             "last_bonus": 0, "short_id": sid, "clan_id": None, "role": "none",
-            "bank": 0, "deposit": 0, "deposit_start": 0
+            "bank": 0, "deposit": 0, "deposit_start": 0, 
+            "biz_territory": 0, "biz_building": 1, "biz_tax": 0, "biz_last_collect": int(time.time())
         }
         save_data()
 
@@ -108,7 +117,8 @@ def register_user_by_id(uid):
         data["players"][uid] = {
             "username": "Player", "balance": 1000, "last_bonus": 0, 
             "short_id": sid, "clan_id": None, "role": "none",
-            "bank": 0, "deposit": 0, "deposit_start": 0
+            "bank": 0, "deposit": 0, "deposit_start": 0,
+            "biz_territory": 0, "biz_building": 1, "biz_tax": 0, "biz_last_collect": int(time.time())
         }
         save_data()
 
@@ -119,9 +129,137 @@ def start(message):
     bot.send_message(message.chat.id, 
         f"🎰 **MON1 CASINO RPG**\n\n🪙 Баланс: {get_balance(message.from_user.id)}\n\n"
         "**Игры:**\n`мины 1000 3`\n`краш 1000`\n`1000 на 5`\n\n"
-        "**Банк:**\n`банк`\n`банк положить 1000`\n`банк снять 1000`\n`депозит положить 1000`\n`депозит снять`\n\n"
-        "**Кланы:** `мой клан`, `топ кланов`\n"
+        "**Бизнес:**\n`мой бизнес`\n\n"
         "**Инфо:** `помощь`", parse_mode="Markdown")
+
+# --- БИЗНЕС (МЕНЮ) ---
+@bot.message_handler(func=lambda m: m.text.lower().strip() == "мой бизнес")
+def my_business(message):
+    uid = str(message.from_user.id)
+    p = data["players"].get(uid, {})
+    t_lvl = p.get("biz_territory", 0)
+    
+    if t_lvl == 0:
+        kb = InlineKeyboardMarkup().add(InlineKeyboardButton("🏗 Построить бизнес", callback_data="biz_build"))
+        return bot.reply_to(message, f"🏢 У вас нет бизнеса.\nНажмите кнопку ниже, чтобы купить первый уровень за {BIZ_TERRITORY_COST[0]} 🪙.", reply_markup=kb)
+        
+    show_biz_menu(message.chat.id, uid, None)
+
+def show_biz_menu(chat_id, uid, msg_id):
+    p = data["players"].get(uid, {})
+    t_lvl = p.get("biz_territory", 0)
+    b_lvl = p.get("biz_building", 1)
+    tax = p.get("biz_tax", 0)
+    last_collect = p.get("biz_last_collect", int(time.time()))
+    now = int(time.time())
+    
+    income_per_hour = (t_lvl * 1000) * (1 + (b_lvl - 1) * 0.1)
+    seconds_passed = min(now - last_collect, 86400) 
+    earned = int((seconds_passed / 3600) * income_per_hour)
+    tax_owed = int(income_per_hour * 5)
+    
+    text = (
+        f"🏢 **Информация о вашем бизнесе**\n\n"
+        f"🧱 Территория: {t_lvl} м²\n"
+        f"⬆️ Для след. уровня: {BIZ_TERRITORY_COST.get(t_lvl, 'MAX')} 🪙\n\n"
+        f"🏢 Здание: ур. {b_lvl}\n"
+        f"⬆️ Для след. уровня: {BIZ_BUILDING_COST.get(b_lvl, 'MAX')} 🪙\n\n"
+        f"📈 Доход в час: {int(income_per_hour)} 🪙\n"
+        f"💸 Налоги: {tax} 🪙 (нужно оплатить)\n"
+        f"💰 Накоплено: **{earned} 🪙**"
+    )
+    
+    kb = InlineKeyboardMarkup(row_width=2)
+    kb.add(
+        InlineKeyboardButton("💰 Собрать доход", callback_data="biz_collect"),
+        InlineKeyboardButton("🧱 Увеличить Терр.", callback_data="biz_terr"),
+        InlineKeyboardButton("🏢 Увеличить Здание", callback_data="biz_build_up"),
+        InlineKeyboardButton("💸 Оплатить налоги", callback_data="biz_tax")
+    )
+    
+    if msg_id:
+        bot.edit_message_text(text, chat_id, msg_id, reply_markup=kb, parse_mode="Markdown")
+    else:
+        bot.send_message(chat_id, text, reply_markup=kb, parse_mode="Markdown")
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("biz_"))
+def biz_callback(call):
+    uid = str(call.from_user.id)
+    action = call.data.split("_")[1]
+    
+    if action == "build":
+        if get_balance(uid) < BIZ_TERRITORY_COST[0]:
+            return bot.answer_callback_query(call.id, "❌ Недостаточно средств!", show_alert=True)
+        add_balance(uid, -BIZ_TERRITORY_COST[0])
+        data["players"][uid]["biz_territory"] = 1
+        save_data()
+        bot.answer_callback_query(call.id, "✅ Бизнес построен!")
+        show_biz_menu(call.message.chat.id, uid, call.message.message_id)
+        
+    elif action == "collect":
+        p = data["players"].get(uid, {})
+        t_lvl = p.get("biz_territory", 0)
+        b_lvl = p.get("biz_building", 1)
+        tax = p.get("biz_tax", 0)
+        
+        if tax > 0:
+            return bot.answer_callback_query(call.id, f"❌ Сначала оплатите налоги ({tax} 🪙)!", show_alert=True)
+            
+        last_collect = p.get("biz_last_collect", int(time.time()))
+        income_per_hour = (t_lvl * 1000) * (1 + (b_lvl - 1) * 0.1)
+        earned = int((min(int(time.time()) - last_collect, 86400) / 3600) * income_per_hour)
+        
+        if earned <= 0:
+            return bot.answer_callback_query(call.id, "⏳ Вы пока ничего не заработали.", show_alert=True)
+            
+        tax_owed = int(income_per_hour * 5)
+        data["players"][uid]["biz_tax"] = tax_owed
+        add_balance(uid, earned)
+        data["players"][uid]["biz_last_collect"] = int(time.time())
+        save_data()
+        bot.answer_callback_query(call.id, f"💰 Собрано {earned} 🪙! Налог: {tax_owed} 🪙", show_alert=True)
+        show_biz_menu(call.message.chat.id, uid, call.message.message_id)
+        
+    elif action == "terr":
+        p = data["players"].get(uid, {})
+        t_lvl = p.get("biz_territory", 0)
+        if t_lvl >= 5:
+            return bot.answer_callback_query(call.id, "🧱 Максимальный уровень!", show_alert=True)
+        cost = BIZ_TERRITORY_COST.get(t_lvl, 0)
+        if get_balance(uid) < cost:
+            return bot.answer_callback_query(call.id, f"❌ Нужно {cost} 🪙!", show_alert=True)
+        add_balance(uid, -cost)
+        data["players"][uid]["biz_territory"] += 1
+        save_data()
+        bot.answer_callback_query(call.id, "✅ Территория увеличена!")
+        show_biz_menu(call.message.chat.id, uid, call.message.message_id)
+        
+    elif action == "build_up":
+        p = data["players"].get(uid, {})
+        b_lvl = p.get("biz_building", 1)
+        if b_lvl >= 5:
+            return bot.answer_callback_query(call.id, "🏢 Максимальный уровень!", show_alert=True)
+        cost = BIZ_BUILDING_COST.get(b_lvl, 0)
+        if get_balance(uid) < cost:
+            return bot.answer_callback_query(call.id, f"❌ Нужно {cost} 🪙!", show_alert=True)
+        add_balance(uid, -cost)
+        data["players"][uid]["biz_building"] += 1
+        save_data()
+        bot.answer_callback_query(call.id, "✅ Здание улучшено!")
+        show_biz_menu(call.message.chat.id, uid, call.message.message_id)
+        
+    elif action == "tax":
+        p = data["players"].get(uid, {})
+        tax = p.get("biz_tax", 0)
+        if tax <= 0:
+            return bot.answer_callback_query(call.id, "✅ У вас нет долгов.", show_alert=True)
+        if get_balance(uid) < tax:
+            return bot.answer_callback_query(call.id, f"❌ Нужно {tax} 🪙!", show_alert=True)
+        add_balance(uid, -tax)
+        data["players"][uid]["biz_tax"] = 0
+        save_data()
+        bot.answer_callback_query(call.id, "✅ Налоги оплачены!")
+        show_biz_menu(call.message.chat.id, uid, call.message.message_id)
 
 # --- БАНК И ДЕПОЗИТ ---
 @bot.message_handler(func=lambda m: m.text.lower().strip() == "банк")
@@ -129,22 +267,12 @@ def bank_info(message):
     uid = str(message.from_user.id); p = data["players"].get(uid, {})
     bank_sum = p.get("bank", 0); dep_sum = p.get("deposit", 0); dep_start = p.get("deposit_start", 0)
     now = int(time.time()); cooldown = 3 * 86400
-    
     dep_status = "Нет"
     if dep_sum > 0:
         passed = now - dep_start
-        if passed >= cooldown:
-            dep_status = f"✅ {dep_sum} 🪙 (Можно снять!)"
-        else:
-            rem = cooldown - passed
-            dep_status = f"⏳ {dep_sum} 🪙 (Снять через {rem//3600} ч.)"
-
-    msg = (
-        f"🏦 **БАНК**\n\n👤 Владелец: {get_nick(uid)}\n"
-        f"💰 Обычный счет: {bank_sum} 🪙\n\n"
-        f"💎 **Депозит:**\n{dep_status}\n📈 Доходность: 10% (раз в 3 дня)\n\n"
-        f"Команды:\n`банк положить СУММА` / `банк снять СУММА`\n`депозит положить СУММА` / `депозит снять`"
-    )
+        if passed >= cooldown: dep_status = f"✅ {dep_sum} 🪙 (Можно снять!)"
+        else: dep_status = f"⏳ {dep_sum} 🪙 (Снять через {(cooldown - passed)//3600} ч.)"
+    msg = f"🏦 **БАНК**\n\n👤 Владелец: {get_nick(uid)}\n💰 Обычный счет: {bank_sum} 🪙\n\n💎 **Депозит:**\n{dep_status}\n📈 Доходность: 10% (раз в 3 дня)\n\nКоманды:\n`банк положить СУММА` / `банк снять СУММА`\n`депозит положить СУММА` / `депозит снять`"
     bot.reply_to(message, msg, parse_mode="Markdown")
 
 @bot.message_handler(func=lambda m: m.text.lower().startswith("банк положить"))
@@ -191,51 +319,30 @@ def withdraw_deposit(message):
     add_balance(uid, total); data["players"][uid]["deposit"] = 0; data["players"][uid]["deposit_start"] = 0; save_data()
     bot.reply_to(message, f"🏦 **Депозит закрыт!**\nВклад: {dep_sum} 🪙\nПроценты: +{interest} 🪙\nИтого: **{total} 🪙**", parse_mode="Markdown")
 
-# --- ПЕРЕВОДЫ (ПО РЕПЛЕЮ И ПО НИКУ) ---
+# --- ПЕРЕВОДЫ ---
 @bot.message_handler(func=lambda m: m.text.lower().startswith("перевод"))
 def transfer_cmd(message):
     uid = str(message.from_user.id)
-    
-    # Если это ответ на сообщение (Reply)
     if message.reply_to_message:
-        target_user = message.reply_to_message.from_user
-        target_uid = str(target_user.id)
-        
-        try:
-            amount = int(message.text.split()[1])
-        except: 
-            return bot.reply_to(message, "❌ `перевод 1000` (в ответ на сообщение)")
-            
-        if amount <= 0 or get_balance(uid) < amount: 
-            return bot.reply_to(message, "❌ Недостаточно средств.")
-        if target_uid == uid: 
-            return bot.reply_to(message, "❌ Нельзя перевести себе.")
-            
-        # Если получателя нет в базе, регистрируем его
-        if target_uid not in data["players"]:
-            register_user(target_user)
-            
-        add_balance(uid, -amount)
-        add_balance(target_uid, amount)
+        target_user = message.reply_to_message.from_user; target_uid = str(target_user.id)
+        try: amount = int(message.text.split()[1])
+        except: return bot.reply_to(message, "❌ `перевод 1000` (в ответ на сообщение)")
+        if amount <= 0 or get_balance(uid) < amount: return bot.reply_to(message, "❌ Недостаточно средств.")
+        if target_uid == uid: return bot.reply_to(message, "❌ Нельзя перевести себе.")
+        if target_uid not in data["players"]: register_user(target_user)
+        add_balance(uid, -amount); add_balance(target_uid, amount)
         return bot.reply_to(message, f"✅ Переведено {amount} 🪙 игроку {get_nick(target_uid)}.")
-        
-    # Если перевод по нику (текстом)
     else:
         try:
-            parts = message.text.split()
-            amount = int(parts[1])
-            target_name = parts[2]
-            
+            parts = message.text.split(); amount = int(parts[1]); target_name = parts[2]
             if amount <= 0 or get_balance(uid) < amount: return bot.reply_to(message, "❌ Недостаточно средств.")
             target_uid = get_user_by_username(target_name)
             if not target_uid or target_uid == uid: return bot.reply_to(message, "❌ Игрок не найден.")
-            
             add_balance(uid, -amount); add_balance(target_uid, amount)
             bot.reply_to(message, f"✅ Переведено {amount} 🪙 игроку {get_nick(target_uid)}.")
-        except: 
-            bot.reply_to(message, "❌ `перевод 1000 ник` или ответьте на сообщение с `перевод 1000`")
+        except: bot.reply_to(message, "❌ `перевод 1000 ник` или ответьте на сообщение")
 
-# --- ИГРЫ ---
+# --- ИГРЫ (СОКРАЩЕННО, НО РАБОЧИЕ) ---
 @bot.message_handler(func=lambda m: m.text.lower().startswith("мины"))
 def start_mines(message):
     uid = str(message.from_user.id)
@@ -461,6 +568,7 @@ def help_cmd(message):
     text = (
         "📖 **ИНСТРУКЦИЯ**\n\n"
         "**👤 БАЗОВЫЕ**\n`б`, `профиль`, `бонус`\n`сменить ник ИМЯ`\n\n"
+        "**🏢 БИЗНЕС**\n`мой бизнес` — меню\n\n"
         "**🏦 БАНК**\n`банк` — инфо\n`банк положить СУММА`\n`банк снять СУММА`\n`депозит положить СУММА` (10% за 3 дня)\n`депозит снять`\n\n"
         "**💸 ПЕРЕВОД**\n`перевод СУММА ник`\n(или ответьте на сообщение: `перевод СУММА`)\n\n"
         "**🎮 ИГРЫ**\n`мины СУММА МИНЫ`\n`краш СУММА`\n`СУММА на ЦИФРА`\n\n"
