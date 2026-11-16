@@ -119,7 +119,6 @@ def spin_wheel_logic(user_id, chat_id, bet, msg_id=None):
     
     add_balance(user_id, -bet)
     
-    # Сектора: (множитель, шанс, текст)
     sectors = [
         (-0.5, 2, "💀 x0.5 (потеряли половину)"),     
         (-1, 3, "💀 x0 (потеряли всё)"),   
@@ -460,7 +459,6 @@ def handle_all_text(message):
     
     if text in ["б", "баланс", "профиль", "п", "лог", "топ", "top", "помощь", "help", "бонус", "bonus"]: return
 
-    # Текстовая команда для колеса
     if parts[0] in ["колесо", "wheel"] and len(parts) >= 2:
         try:
             bet = int(parts[1])
@@ -543,7 +541,4 @@ def handle_all_text(message):
                 if win: reward = bet * mult; total_win += reward; results.append(f"✅ {bet} на {target} (x{mult}) -> +{reward} 🪙")
                 else: results.append(f"❌ {bet} на {target} -> проигрыш")
             add_balance(user_id, total_win)
-            bot.reply_to(message, f"🎰 Выпало: {sym} **{win_num}**\n\n" + "\n".join(results) + f"\n\n💰 Итого: **{total_win} 🪙**\n🪙 Баланс: {get_balance(user_id)}", parse_mode="Markdown")
-            return
-        except ValueError: 
-            return bot.reply_to(message,
+            bot.reply_to(message, f"🎰 Выпало: {sym} **{win_num}**\n\n" + "\n".join(results) + f"\n\n💰
