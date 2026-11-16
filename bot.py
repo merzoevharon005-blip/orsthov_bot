@@ -86,11 +86,11 @@ def main_menu():
         InlineKeyboardButton("🎰 РУЛЕТКА", callback_data="game_roulette"),
         InlineKeyboardButton("👤 ПРОФИЛЬ", callback_data="profile"),
         InlineKeyboardButton("❓ ПОМОЩЬ", callback_data="help_menu"),
-        InlineKeyboardButton("⭐ ДОНАТ", callback_data="donate_menu") # Кнопка доната
+        InlineKeyboardButton("⭐ ДОНАТ", callback_data="donate_menu")
     )
     return kb
 
-# --- ДОНАТ ЧЕРЕЗ ЗВЕЗДЫ ---
+# --- ДОНАТ ЧЕРЕЗ ЗВЕЗДЫ (ПОЛНОЦЕННЫЙ) ---
 @bot.callback_query_handler(func=lambda call: call.data == "donate_menu")
 def donate_menu(call):
     bot.answer_callback_query(call.id)
@@ -125,18 +125,22 @@ def send_donate_invoice(call):
     coins = {50: 5000, 100: 12000, 250: 35000}[stars]
     
     bot.answer_callback_query(call.id)
-    bot.send_invoice(
-        chat_id=call.message.chat.id,
-        title="Поддержка Monix Casino",
-        description=f"Вы получите {coins} Mon1Coin 🪙",
-        payload=f"donate_{stars}_{coins}",
-        provider_token="",  # Для звезд ВСЕГДА пустая строка
-        currency="XTR",     # Валюта - Звезды
-        prices=[LabeledPrice(label="Поддержка", amount=stars)]
-    )
+    try:
+        bot.send_invoice(
+            chat_id=call.message.chat.id,
+            title="Поддержка Monix Casino",
+            description=f"Вы получите {coins} Mon1Coin 🪙",
+            payload=f"donate_{stars}_{coins}",
+            provider_token="",  # Для звезд ВСЕГДА пустая строка
+            currency="XTR",     # Валюта - Звезды
+            prices=[LabeledPrice(label="Поддержка", amount=stars)]
+        )
+    except Exception as e:
+        bot.send_message(call.message.chat.id, f"❌ Ошибка при создании счета: {e}")
 
 @bot.pre_checkout_query_handler(func=lambda query: True)
 def process_pre_checkout(pre_checkout_query):
+    # Обязательно подтверждаем платеж
     bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
 
 @bot.message_handler(content_types=['successful_payment'])
@@ -360,9 +364,7 @@ def handle_all_text(message):
     parts = text.split()
     user_id = message.from_user.id
     
-    # Обработка доната текстом (если не сработал декоратор выше)
-    if text in ["донат", "донейт"]:
-        return 
+    if text in ["донат", "донейт"]: return 
     
     if text in ["б", "баланс"]:
         bot.reply_to(message, f"🪙 Твой баланс: {get_balance(user_id)} Mon1Coin")
