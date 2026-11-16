@@ -86,20 +86,23 @@ def main_menu():
     )
     return kb
 
-# --- СТАРТ И ПОМОЩЬ ---
+# --- СТАРТ ---
 @bot.message_handler(commands=["start"])
 def start(message):
     register_user(message.from_user)
     bot.send_message(message.chat.id, f"🎰 ДОБРО ПОЖАЛОВАТЬ В MON1 CASINO!\n\n🪙 Твой баланс: {get_balance(message.from_user.id)} Mon1Coin\n\nВыбирай игру:", reply_markup=main_menu())
 
+# --- ПОМОЩЬ (ИСПРАВЛЕНО) ---
 @bot.callback_query_handler(func=lambda call: call.data == "help_menu")
+def help_callback(call):
+    bot.answer_callback_query(call.id)
+    send_help_text(call.message.chat.id)
+
 @bot.message_handler(func=lambda message: message.text.lower().strip() in ["помощь", "help"])
-def send_help(message_or_call):
-    if isinstance(message_or_call, telebot.types.CallbackQuery):
-        chat_id = message_or_call.message.chat.id
-        bot.answer_callback_query(message_or_call.id)
-    else:
-        chat_id = message_or_call.chat.id
+def help_message(message):
+    send_help_text(message.chat.id)
+
+def send_help_text(chat_id):
     help_text = (
         "📖 **ПОЛНАЯ ИНСТРУКЦИЯ MON1 CASINO**\n\n"
         "🪙 **Валюта:** Mon1Coin\n\n"
@@ -125,20 +128,22 @@ def send_help(message_or_call):
         "`/give ID СУММА`\n"
         "`/reset ID`"
     )
-    bot.send_message(chat_id, help_text, parse_mode="Markdown")
+    try:
+        bot.send_message(chat_id, help_text, parse_mode="Markdown")
+    except Exception as e:
+        print(f"Ошибка отправки помощи: {e}")
 
-# --- ТОП БАЛАНСА ---
+# --- ТОП (ИСПРАВЛЕНО) ---
 @bot.callback_query_handler(func=lambda call: call.data == "top_menu")
-@bot.message_handler(func=lambda message: message.text.lower().strip() in ["топ", "top"])
-def top_players(message_or_call):
-    if isinstance(message_or_call, telebot.types.CallbackQuery):
-        chat_id = message_or_call.message.chat.id
-        msg_id = message_or_call.message.message_id
-        bot.answer_callback_query(message_or_call.id)
-    else:
-        chat_id = message_or_call.chat.id
-        msg_id = None
+def top_callback(call):
+    bot.answer_callback_query(call.id)
+    send_top_text(call.message.chat.id, call.message.message_id)
 
+@bot.message_handler(func=lambda message: message.text.lower().strip() in ["топ", "top"])
+def top_message(message):
+    send_top_text(message.chat.id, None)
+
+def send_top_text(chat_id, msg_id=None):
     sorted_players = sorted(data["players"].items(), key=lambda x: x[1].get("balance", 0), reverse=True)
     text = "🏆 **ТОП-10 БОГАЧЕЙ**\n\n"
     for i, (uid, pdata) in enumerate(sorted_players[:10], 1):
@@ -151,7 +156,7 @@ def top_players(message_or_call):
     else:
         bot.send_message(chat_id, text, parse_mode="Markdown")
 
-# --- CRASH ---
+# --- CRASH (ДО 100x) ---
 @bot.callback_query_handler(func=lambda call: call.data == "game_crash")
 def crash_menu(call):
     bot.answer_callback_query(call.id)
@@ -314,6 +319,7 @@ def roul_menu(call):
     bot.answer_callback_query(call.id)
     bot.send_message(call.message.chat.id, f"🎰 **РУЛЕТКА**\n\n📜 Последние 15: {get_history_roulette()}\n\nФормат: `1000 на 1 на 5 на 7`\nЦвет: `500 на red`\nДиапазон: `300 на 11-14`\nЧет/Нечет: `100 на чет` / `100 на нечет`", parse_mode="Markdown")
 
+# --- ОБРАБОТЧИК ТЕКСТА ---
 @bot.message_handler(content_types=['text'])
 def handle_all_text(message):
     if message.text.startswith('/'): return
@@ -401,5 +407,5 @@ def handle_all_text(message):
             return
         except ValueError: return bot.reply_to(message, "❌ Первое слово должно быть суммой. Пример: `1000 на 5`")
 
-print("MON1 CASINO (Fix) запущен!")
+print("MON1 CASINO (Final) запущен!")
 bot.infinity_polling(skip_pending=True)
