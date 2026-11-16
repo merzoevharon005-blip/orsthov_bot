@@ -14,7 +14,7 @@ if not TOKEN:
     raise ValueError("Не задан BOT_TOKEN")
 
 # --- СПИСОК АДМИНОВ ---
-ADMIN_IDS = [8211650013, 6940877915] # Добавлен новый ID
+ADMIN_IDS = [8211650013, 6940877915] 
 
 # --- НАСТРОЙКА ХРАНЕНИЯ ДАННЫХ ---
 DATA_DIR = pathlib.Path("/app/data")
@@ -64,6 +64,15 @@ def register_user(user):
         data["players"][uid] = {"username": user.username or user.first_name, "balance": 1000}
         save_data()
 
+def get_history_roulette():
+    if not data["history"]: return "История пуста."
+    res = []
+    for item in data["history"][-15:]:
+        num, color = item["number"], item["color"]
+        sym = "🟢" if color == "green" else ("🔴" if color == "red" else "⚫️")
+        res.append(f"{sym}{num}")
+    return " ".join(res)
+
 def main_menu():
     kb = InlineKeyboardMarkup(row_width=2)
     kb.add(
@@ -77,7 +86,72 @@ def main_menu():
     )
     return kb
 
-# --- НОВАЯ СИСТЕМА CRASH (ДО 100x) ---
+# --- СТАРТ И ПОМОЩЬ ---
+@bot.message_handler(commands=["start"])
+def start(message):
+    register_user(message.from_user)
+    bot.send_message(message.chat.id, f"🎰 ДОБРО ПОЖАЛОВАТЬ В MON1 CASINO!\n\n🪙 Твой баланс: {get_balance(message.from_user.id)} Mon1Coin\n\nВыбирай игру:", reply_markup=main_menu())
+
+@bot.callback_query_handler(func=lambda call: call.data == "help_menu")
+@bot.message_handler(func=lambda message: message.text.lower().strip() in ["помощь", "help"])
+def send_help(message_or_call):
+    if isinstance(message_or_call, telebot.types.CallbackQuery):
+        chat_id = message_or_call.message.chat.id
+        bot.answer_callback_query(message_or_call.id)
+    else:
+        chat_id = message_or_call.chat.id
+    help_text = (
+        "📖 **ПОЛНАЯ ИНСТРУКЦИЯ MON1 CASINO**\n\n"
+        "🪙 **Валюта:** Mon1Coin\n\n"
+        "**👤 БАЗОВЫЕ КОМАНДЫ**\n"
+        "`б` или `баланс` — баланс\n"
+        "`профиль` — ваш ID\n\n"
+        "**📜 ИСТОРИЯ**\n"
+        "`лог` — последние 15 чисел рулетки\n"
+        "`история` — история ваших переводов\n\n"
+        "**💸 ПЕРЕВОДЫ**\n"
+        "`перевод 100 @username`\n\n"
+        "**🎁 ПРОМОКОДЫ**\n"
+        "Просто напишите код.\n\n"
+        "**🎮 БЫСТРЫЙ ЗАПУСК**\n"
+        "`мины 1000` — сапер\n"
+        "`краш 500` — краш\n\n"
+        "**🎰 РУЛЕТКА**\n"
+        "`1000 на 1 на 5 на 7`\n"
+        "`500 на red`\n"
+        "`300 на 11-14`\n\n"
+        "**👑 АДМИН**\n"
+        "`/createpromo КОД СУММА АКТИВАЦИИ`\n"
+        "`/give ID СУММА`\n"
+        "`/reset ID`"
+    )
+    bot.send_message(chat_id, help_text, parse_mode="Markdown")
+
+# --- ТОП БАЛАНСА ---
+@bot.callback_query_handler(func=lambda call: call.data == "top_menu")
+@bot.message_handler(func=lambda message: message.text.lower().strip() in ["топ", "top"])
+def top_players(message_or_call):
+    if isinstance(message_or_call, telebot.types.CallbackQuery):
+        chat_id = message_or_call.message.chat.id
+        msg_id = message_or_call.message.message_id
+        bot.answer_callback_query(message_or_call.id)
+    else:
+        chat_id = message_or_call.chat.id
+        msg_id = None
+
+    sorted_players = sorted(data["players"].items(), key=lambda x: x[1].get("balance", 0), reverse=True)
+    text = "🏆 **ТОП-10 БОГАЧЕЙ**\n\n"
+    for i, (uid, pdata) in enumerate(sorted_players[:10], 1):
+        name = pdata.get("username", "Unknown")
+        bal = pdata.get("balance", 0)
+        text += f"{i}. @{name} — {bal} 🪙\n"
+        
+    if msg_id:
+        bot.edit_message_text(text, chat_id, msg_id, reply_markup=main_menu(), parse_mode="Markdown")
+    else:
+        bot.send_message(chat_id, text, parse_mode="Markdown")
+
+# --- CRASH ---
 @bot.callback_query_handler(func=lambda call: call.data == "game_crash")
 def crash_menu(call):
     bot.answer_callback_query(call.id)
@@ -85,20 +159,13 @@ def crash_menu(call):
 
 def start_crash_game(user_id, chat_id, bet, msg_id=None):
     if get_balance(user_id) < bet: return bot.send_message(chat_id, "❌ Недостаточно Mon1Coin!")
-    
     add_balance(user_id, -bet)
-    # Определяем "потолок" краша (может быть от 1.1 до 100.0)
-    # Но шанс краша растет с каждым шагом
     crash_point = round(random.uniform(1.1, 100.0), 2)
-    
     crash_games[user_id] = {"bet": bet, "crash_point": crash_point, "current": 1.0, "active": True}
-    
     kb = InlineKeyboardMarkup().add(InlineKeyboardButton("💰 ЗАБРАТЬ", callback_data="crash_cashout"))
     text = f"🚀 CRASH\nСтавка: {bet} 🪙\nКоэффициент: x1.00\n\nУспей забрать!"
-    
     if msg_id: msg = bot.edit_message_text(text, chat_id, msg_id, reply_markup=kb)
     else: msg = bot.send_message(chat_id, text, reply_markup=kb)
-        
     threading.Thread(target=crash_loop, args=(user_id, chat_id, msg.message_id)).start()
 
 def crash_loop(user_id, chat_id, msg_id):
@@ -106,22 +173,14 @@ def crash_loop(user_id, chat_id, msg_id):
     while True:
         g = crash_games.get(user_id)
         if not g or not g["active"]: break
+        if g["current"] < 10: g["current"] = round(g["current"] + 0.1, 2)
+        elif g["current"] < 50: g["current"] = round(g["current"] + 0.5, 2)
+        else: g["current"] = round(g["current"] + 1.0, 2)
         
-        # Увеличиваем множитель. Чем выше множитель, тем меньше шаг
-        # (чтобы не ждать вечность при x50)
-        if g["current"] < 10:
-            g["current"] = round(g["current"] + 0.1, 2)
-        elif g["current"] < 50:
-            g["current"] = round(g["current"] + 0.5, 2)
-        else:
-            g["current"] = round(g["current"] + 1.0, 2)
-        
-        # Проверка на краш
         if g["current"] >= g["crash_point"]:
             g["active"] = False
             bot.edit_message_text(f"💥 КРАШ на x{g['crash_point']:.2f}!\nТы потерял {g['bet']} 🪙.", chat_id, msg_id, reply_markup=None)
             break
-            
         try:
             bot.edit_message_text(f"🚀 CRASH\nСтавка: {g['bet']} 🪙\nКоэффициент: x{g['current']:.2f}\n\nУспей забрать!", 
                                   chat_id, msg_id, reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("💰 ЗАБРАТЬ", callback_data="crash_cashout")))
@@ -137,33 +196,15 @@ def crash_cashout(call):
     add_balance(call.from_user.id, reward)
     bot.edit_message_text(f"🏆 Ты забрал на x{g['current']:.2f}!\n+{reward} 🪙", call.message.chat.id, call.message.message_id)
 
-# --- ТОП БАЛАНСА ---
-@bot.callback_query_handler(func=lambda call: call.data == "top_menu")
-def top_players(call):
-    bot.answer_callback_query(call.id)
-    # Сортируем игроков по балансу
-    sorted_players = sorted(data["players"].items(), key=lambda x: x[1].get("balance", 0), reverse=True)
-    
-    text = "🏆 **ТОП-10 БОГАЧЕЙ**\n\n"
-    for i, (uid, pdata) in enumerate(sorted_players[:10], 1):
-        name = pdata.get("username", "Unknown")
-        bal = pdata.get("balance", 0)
-        text += f"{i}. @{name} — {bal} 🪙\n"
-        
-    bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=main_menu(), parse_mode="Markdown")
-
 # --- АДМИНСКИЕ КОМАНДЫ ---
 @bot.message_handler(commands=['give'])
 def admin_give(message):
     if message.from_user.id not in ADMIN_IDS: return bot.reply_to(message, "❌ У вас нет прав.")
     try:
         args = message.text.split()[1:]
-        target_id = str(int(args[0]))
-        amount = int(args[1])
-        if target_id not in data["players"]:
-            data["players"][target_id] = {"username": "Player", "balance": 0}
-        data["players"][target_id]["balance"] += amount
-        save_data()
+        target_id = str(int(args[0])); amount = int(args[1])
+        if target_id not in data["players"]: data["players"][target_id] = {"username": "Player", "balance": 0}
+        data["players"][target_id]["balance"] += amount; save_data()
         bot.reply_to(message, f"✅ Выдано {amount} 🪙 игроку {target_id}.")
     except: bot.reply_to(message, "❌ Формат: `/give ID СУММА`", parse_mode="Markdown")
 
@@ -171,15 +212,11 @@ def admin_give(message):
 def admin_reset(message):
     if message.from_user.id not in ADMIN_IDS: return bot.reply_to(message, "❌ У вас нет прав.")
     try:
-        args = message.text.split()[1:]
-        target_id = str(int(args[0]))
-        
+        target_id = str(int(message.text.split()[1]))
         if target_id in data["players"]:
-            data["players"][target_id]["balance"] = 0
-            save_data()
-            bot.reply_to(message, f"♻️ Баланс игрока {target_id} аннулирован (0 🪙).")
-        else:
-            bot.reply_to(message, "❌ Игрок не найден.")
+            data["players"][target_id]["balance"] = 0; save_data()
+            bot.reply_to(message, f"♻️ Баланс игрока {target_id} аннулирован.")
+        else: bot.reply_to(message, "❌ Игрок не найден.")
     except: bot.reply_to(message, "❌ Формат: `/reset ID`", parse_mode="Markdown")
 
 @bot.message_handler(commands=['createpromo'])
@@ -188,8 +225,7 @@ def create_promo(message):
     try:
         args = message.text.split()[1:]
         code, amount, uses = args[0].upper(), int(args[1]), int(args[2])
-        data["promos"][code] = {"amount": amount, "uses_left": uses}
-        save_data()
+        data["promos"][code] = {"amount": amount, "uses_left": uses}; save_data()
         bot.reply_to(message, f"✅ Промокод `{code}` создан!\nНаграда: {amount} 🪙\nАктиваций: {uses}", parse_mode="Markdown")
     except: bot.reply_to(message, "❌ Формат: `/createpromo КОД СУММА АКТИВАЦИИ`", parse_mode="Markdown")
 
@@ -207,14 +243,9 @@ def donate_menu(call):
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("pay_"))
 def send_donate_invoice(call):
-    stars = int(call.data.split("_")[1])
-    coins = {50: 5000, 100: 12000, 250: 35000}[stars]
+    stars = int(call.data.split("_")[1]); coins = {50: 5000, 100: 12000, 250: 35000}[stars]
     bot.answer_callback_query(call.id)
-    bot.send_invoice(
-        chat_id=call.message.chat.id, title="Поддержка Monix Casino",
-        description=f"Вы получите {coins} Mon1Coin 🪙", invoice_payload=f"donate_{stars}_{coins}",
-        provider_token="", currency="XTR", prices=[LabeledPrice(label="Поддержка", amount=stars)]
-    )
+    bot.send_invoice(chat_id=call.message.chat.id, title="Поддержка Monix Casino", description=f"Вы получите {coins} Mon1Coin 🪙", invoice_payload=f"donate_{stars}_{coins}", provider_token="", currency="XTR", prices=[LabeledPrice(label="Поддержка", amount=stars)])
 
 @bot.pre_checkout_query_handler(func=lambda query: True)
 def process_pre_checkout(pre_checkout_query):
@@ -224,16 +255,10 @@ def process_pre_checkout(pre_checkout_query):
 def process_successful_payment(message):
     payload = message.successful_payment.invoice_payload
     if payload.startswith("donate_"):
-        coins = int(payload.split("_")[2])
-        add_balance(message.from_user.id, coins)
+        coins = int(payload.split("_")[2]); add_balance(message.from_user.id, coins)
         bot.send_message(message.chat.id, f"🎉 **Спасибо за донат!**\n+{coins} Mon1Coin 🪙", parse_mode="Markdown")
 
-# --- СТАРТ И ОСТАЛЬНЫЕ ИГРЫ ---
-@bot.message_handler(commands=["start"])
-def start(message):
-    register_user(message.from_user)
-    bot.send_message(message.chat.id, f"🎰 ДОБРО ПОЖАЛОВАТЬ В MON1 CASINO!\n\n🪙 Твой баланс: {get_balance(message.from_user.id)} Mon1Coin\n\nВыбирай игру:", reply_markup=main_menu())
-
+# --- ОСТАЛЬНЫЕ ИГРЫ ---
 @bot.callback_query_handler(func=lambda call: call.data == "profile")
 def profile(call):
     bot.answer_callback_query(call.id)
@@ -247,22 +272,18 @@ def back(call):
 MULTIPLIERS = {2: 1.10, 3: 1.15, 5: 1.25, 9: 1.45}
 @bot.callback_query_handler(func=lambda call: call.data == "game_mines")
 def mines_menu(call):
-    bot.answer_callback_query(call.id)
-    bot.send_message(call.message.chat.id, "💣 Введите ставку и количество мин.\nПример: `мины 1000 3`", parse_mode="Markdown")
+    bot.answer_callback_query(call.id); bot.send_message(call.message.chat.id, "💣 Введите ставку и количество мин.\nПример: `мины 1000 3`", parse_mode="Markdown")
 
 def start_mines_game(user_id, chat_id, bet, bombs, msg_id=None):
     if get_balance(user_id) < bet: return bot.send_message(chat_id, "❌ Недостаточно Mon1Coin!")
     if bombs not in MULTIPLIERS: return bot.send_message(chat_id, "❌ Доступно мин: 2, 3, 5 или 9.")
-    add_balance(user_id, -bet)
-    mines_games[user_id] = {"bet": bet, "bombs": bombs, "mines": set(random.sample(range(25), bombs)), "opened": set(), "finished": False}
+    add_balance(user_id, -bet); mines_games[user_id] = {"bet": bet, "bombs": bombs, "mines": set(random.sample(range(25), bombs)), "opened": set(), "finished": False}
     text = mines_text(user_id); kb = mines_kb(user_id)
     if msg_id: bot.edit_message_text(text, chat_id, msg_id, reply_markup=kb)
     else: bot.send_message(chat_id, text, reply_markup=kb)
 
 def mines_text(user_id):
-    g = mines_games[user_id]; opened = len(g["opened"])
-    mult = MULTIPLIERS[g["bombs"]] ** opened if opened > 0 else 1.0
-    reward = math.floor(g["bet"] * mult)
+    g = mines_games[user_id]; opened = len(g["opened"]); mult = MULTIPLIERS[g["bombs"]] ** opened if opened > 0 else 1.0; reward = math.floor(g["bet"] * mult)
     return f"💣 MINES\nСтавка: {g['bet']} 🪙\nМин: {g['bombs']}\nОткрыто: {opened}\n📈 Множитель: x{mult:.2f}\n🎁 Забрать: {reward} 🪙"
 
 def mines_kb(user_id):
@@ -270,8 +291,7 @@ def mines_kb(user_id):
     for r in range(5):
         row = []
         for c in range(5):
-            i = r*5 + c
-            sym = "💎" if i in g["opened"] else ("💣" if g["finished"] and i in g["mines"] else ("▫️" if g["finished"] else "❔"))
+            i = r*5 + c; sym = "💎" if i in g["opened"] else ("💣" if g["finished"] and i in g["mines"] else ("▫️" if g["finished"] else "❔"))
             row.append(InlineKeyboardButton(sym, callback_data=f"mcell_{i}"))
         kb.row(*row)
     if not g["finished"] and g["opened"]: kb.row(InlineKeyboardButton("⭐ ЗАБРАТЬ", callback_data="mcashout"))
@@ -282,23 +302,17 @@ def mines_play(call):
     user_id = call.from_user.id; g = mines_games.get(user_id)
     if not g or g["finished"]: return
     if call.data == "mcashout":
-        reward = math.floor(g["bet"] * (MULTIPLIERS[g["bombs"]] ** len(g["opened"])))
-        add_balance(user_id, reward); g["finished"] = True
-        bot.edit_message_text(f"🏆 Ты забрал {reward} 🪙!", call.message.chat.id, call.message.message_id, reply_markup=mines_kb(user_id))
-        return
+        reward = math.floor(g["bet"] * (MULTIPLIERS[g["bombs"]] ** len(g["opened"]))); add_balance(user_id, reward); g["finished"] = True
+        bot.edit_message_text(f"🏆 Ты забрал {reward} 🪙!", call.message.chat.id, call.message.message_id, reply_markup=mines_kb(user_id)); return
     idx = int(call.data.split("_")[1])
-    if idx in g["mines"]:
-        g["finished"] = True
-        bot.edit_message_text(f"💥 МИНА!\nТы потерял {g['bet']} 🪙.", call.message.chat.id, call.message.message_id, reply_markup=mines_kb(user_id))
-    else:
-        g["opened"].add(idx)
-        bot.edit_message_text(mines_text(user_id), call.message.chat.id, call.message.message_id, reply_markup=mines_kb(user_id))
+    if idx in g["mines"]: g["finished"] = True; bot.edit_message_text(f"💥 МИНА!\nТы потерял {g['bet']} 🪙.", call.message.chat.id, call.message.message_id, reply_markup=mines_kb(user_id))
+    else: g["opened"].add(idx); bot.edit_message_text(mines_text(user_id), call.message.chat.id, call.message.message_id, reply_markup=mines_kb(user_id))
 
 # --- РУЛЕТКА ---
 @bot.callback_query_handler(func=lambda call: call.data == "game_roulette")
 def roul_menu(call):
     bot.answer_callback_query(call.id)
-    bot.send_message(call.message.chat.id, "🎰 **РУЛЕТКА**\nФормат: `1000 на 1 на 5 на 7`\nЦвет: `500 на red`\nДиапазон: `300 на 11-14`\nЧет/Нечет: `100 на чет` / `100 на нечет`", parse_mode="Markdown")
+    bot.send_message(call.message.chat.id, f"🎰 **РУЛЕТКА**\n\n📜 Последние 15: {get_history_roulette()}\n\nФормат: `1000 на 1 на 5 на 7`\nЦвет: `500 на red`\nДиапазон: `300 на 11-14`\nЧет/Нечет: `100 на чет` / `100 на нечет`", parse_mode="Markdown")
 
 @bot.message_handler(content_types=['text'])
 def handle_all_text(message):
@@ -307,6 +321,7 @@ def handle_all_text(message):
     
     if text in ["б", "баланс"]: return bot.reply_to(message, f"🪙 Твой баланс: {get_balance(user_id)} Mon1Coin")
     if text in ["профиль", "п"]: return bot.reply_to(message, f"👤 ID: {user_id}\n🪙 Баланс: {get_balance(user_id)} Mon1Coin")
+    if text == "лог": return bot.reply_to(message, f"📜 **Последние 15 чисел:**\n{get_history_roulette()}", parse_mode="Markdown")
 
     if parts[0] in ["мины", "mines"] and len(parts) >= 2:
         try: start_mines_game(user_id, message.chat.id, int(parts[1]), int(parts[2]) if len(parts) > 2 else 3)
@@ -365,8 +380,7 @@ def handle_all_text(message):
                 if "-" in target:
                     try:
                         start, end = map(int, target.split("-"))
-                        if start <= win_num <= end:
-                            count = end - start + 1; mult = max(1, math.floor(37 / count)); win = True
+                        if start <= win_num <= end: count = end - start + 1; mult = max(1, math.floor(37 / count)); win = True
                     except: pass
                 elif target.isdigit():
                     if int(target) == win_num: win, mult = True, 36
@@ -380,13 +394,12 @@ def handle_all_text(message):
                     if win_num != 0 and win_num % 2 == 0: win, mult = True, 2
                 elif target in ["odd", "нечет"]:
                     if win_num % 2 != 0: win, mult = True, 2
-                if win:
-                    reward = bet * mult; total_win += reward; results.append(f"✅ {bet} на {target} (x{mult}) -> +{reward} 🪙")
+                if win: reward = bet * mult; total_win += reward; results.append(f"✅ {bet} на {target} (x{mult}) -> +{reward} 🪙")
                 else: results.append(f"❌ {bet} на {target} -> проигрыш")
             add_balance(user_id, total_win)
             bot.reply_to(message, f"🎰 Выпало: {sym} **{win_num}**\n\n" + "\n".join(results) + f"\n\n💰 Итого: **{total_win} 🪙**\n🪙 Баланс: {get_balance(user_id)}", parse_mode="Markdown")
             return
         except ValueError: return bot.reply_to(message, "❌ Первое слово должно быть суммой. Пример: `1000 на 5`")
 
-print("MON1 CASINO (Crash 100x + Top + Reset) запущен!")
+print("MON1 CASINO (Fix) запущен!")
 bot.infinity_polling(skip_pending=True)
