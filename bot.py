@@ -19,7 +19,7 @@ DATA_FILE = DATA_DIR / "database.json"
 
 data = {
     "players": {}, "promos": {}, "activations": [], "history": [], 
-    "clans": {}, "clan_bosses": {}, "next_id": 1
+    "clans": {}, "next_id": 1, "active_games": {}
 }
 
 def load_data():
@@ -39,26 +39,25 @@ def save_data():
 
 load_data()
 
-# --- МИГРАЦИЯ ID ---
-def migrate_ids():
+# --- МИГРАЦИЯ ---
+def migrate_data():
     global data
     changed = False
     current_max = max([p.get("short_id", 0) for p in data["players"].values() if isinstance(p.get("short_id"), int)], default=0)
     if data.get("next_id", 1) <= current_max:
         data["next_id"] = current_max + 1
     for uid, pdata in data["players"].items():
-        if "short_id" not in pdata or pdata["short_id"] == 0 or pdata["short_id"] == "0":
+        if "short_id" not in pdata or pdata["short_id"] == 0:
             pdata["short_id"] = data["next_id"]
             data["next_id"] += 1
             changed = True
-    if changed:
-        save_data()
+    if changed: save_data()
 
-migrate_ids()
+migrate_data()
 bot = telebot.TeleBot(TOKEN)
-mines_games, crash_games = {}, {}
+MULT = {2: 1.10, 3: 1.15, 5: 1.25, 9: 1.45}
 
-# --- БАЗОВЫЕ ФУНКЦИИ ---
+# --- БАЗА ---
 def get_balance(user_id):
     return data["players"].get(str(user_id), {}).get("balance", 0)
 
@@ -70,8 +69,7 @@ def get_user_short_id(user_id):
 
 def get_user_by_short_id(short_id):
     for uid, pdata in data["players"].items():
-        if str(pdata.get("short_id")) == str(short_id):
-            return uid
+        if str(pdata.get("short_id")) == str(short_id): return uid
     return None
 
 def add_balance(user_id, amount):
@@ -84,385 +82,381 @@ def register_user(user):
     uid = str(user.id)
     if uid not in data["players"]:
         sid = data["next_id"]; data["next_id"] += 1
-        data["players"][uid] = {"username": user.username or user.first_name, "balance": 1000, "last_bonus": 0, "short_id": sid, "clan_id": None, "weapon": 1, "armor": 1}
+        data["players"][uid] = {"username": user.username or user.first_name, "balance": 1000, "last_bonus": 0, "short_id": sid, "clan_id": None, "role": "none"}
         save_data()
 
 def register_user_by_id(uid):
     if uid not in data["players"]:
         sid = data["next_id"]; data["next_id"] += 1
-        data["players"][uid] = {"username": "Player", "balance": 1000, "last_bonus": 0, "short_id": sid, "clan_id": None, "weapon": 1, "armor": 1}
+        data["players"][uid] = {"username": "Player", "balance": 1000, "last_bonus": 0, "short_id": sid, "clan_id": None, "role": "none"}
         save_data()
 
-def get_history_roulette():
-    if not data["history"]: return "Пусто."
-    res = []
-    for item in data["history"][-15:]:
-        sym = "🟢" if item["color"] == "green" else ("🔴" if item["color"] == "red" else "⚫️")
-        res.append(f"{sym}{item['number']}")
-    return " ".join(res)
-
-def main_menu():
-    kb = InlineKeyboardMarkup(row_width=2)
-    kb.add(
-        InlineKeyboardButton("💣 MINES", callback_data="game_mines"),
-        InlineKeyboardButton("🚀 CRASH", callback_data="game_crash"),
-        InlineKeyboardButton("🎰 РУЛЕТКА", callback_data="game_roulette"),
-        InlineKeyboardButton("👤 ПРОФИЛЬ", callback_data="profile"),
-        InlineKeyboardButton("🎁 БОНУС", callback_data="bonus_menu"),
-        InlineKeyboardButton("🏆 ТОП", callback_data="top_menu"),
-        InlineKeyboardButton("🛡 КЛАНЫ", callback_data="clan_menu"),
-        InlineKeyboardButton("⚔️ МАГАЗИН", callback_data="shop_menu"),
-        InlineKeyboardButton("❓ ПОМОЩЬ", callback_data="help_menu"),
-        InlineKeyboardButton("⭐ ДОНАТ", callback_data="donate_menu")
-    )
-    return kb
-
-def send_help_text(chat_id, msg_id=None):
-    help_text = (
-        "📖 **ИНСТРУКЦИЯ**\n\n"
-        "`б` - баланс\n`профиль` - ваш ID\n`сменить ник ИМЯ`\n`бонус`\n\n"
-        "**ИГРЫ**\n`мины 1000 3`\n`краш 1000`\n`1000 на 1 на 5`\n\n"
-        "**КЛАНЫ**\nСоздать: 5000\nВступить: по ID\n\n"
-        "**МАГАЗИН**\nОружие/Броня: 2000\n\n"
-        "**АДМИН**\n`/give ИГРОВОЙ_ID СУММА`"
-    )
-    try:
-        if msg_id: bot.edit_message_text(help_text, chat_id, msg_id, reply_markup=main_menu(), parse_mode="Markdown")
-        else: bot.send_message(chat_id, help_text, reply_markup=main_menu(), parse_mode="Markdown")
-    except: pass
-
-# --- ОБРАБОТЧИКИ ---
+# --- СТАРТ ---
 @bot.message_handler(commands=["start"])
 def start(message):
     register_user(message.from_user)
-    bot.send_message(message.chat.id, f"🎰 ДОБРО ПОЖАЛОВАТЬ!\n🪙 Баланс: {get_balance(message.from_user.id)}\nВыбирай действие:", reply_markup=main_menu())
+    bot.send_message(message.chat.id, 
+        f"🎰 **MON1 CASINO RPG**\n\n🪙 Баланс: {get_balance(message.from_user.id)}\n\n"
+        "**Игры:**\n"
+        "`мины 1000 3`\n"
+        "`краш 1000`\n"
+        "`1000 на 5` (рулетка)\n\n"
+        "**Кланы:** `мой клан`, `топ кланов`\n"
+        "**База:** `б`, `профиль`, `бонус`\n"
+        "**Инфо:** `помощь`", parse_mode="Markdown")
 
-@bot.callback_query_handler(func=lambda call: call.data == "profile")
-def profile_callback(call):
-    bot.answer_callback_query(call.id)
-    uid = call.from_user.id
-    p = data["players"].get(str(uid), {})
-    c_name = "Нет" if not p.get("clan_id") else data["clans"].get(str(p["clan_id"]), {}).get("name", "Нет")
-    text = f"👤 **Профиль**\n🆔 ID: `{p.get('short_id')}`\n📛 Ник: {get_nick(uid)}\n🪙 Баланс: {get_balance(uid)}\n🛡 Клан: {c_name}\n⚔️ Оружие: ур.{p.get('weapon', 1)}\n🥋 Броня: ур.{p.get('armor', 1)}"
-    bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=main_menu(), parse_mode="Markdown")
-
-@bot.callback_query_handler(func=lambda call: call.data == "help_menu")
-def help_callback(call):
-    bot.answer_callback_query(call.id)
-    send_help_text(call.message.chat.id, call.message.message_id)
-
-@bot.callback_query_handler(func=lambda call: call.data == "back")
-def back(call):
-    bot.edit_message_text("🎰 МЕНЮ", call.message.chat.id, call.message.message_id, reply_markup=main_menu())
-
-@bot.callback_query_handler(func=lambda call: call.data == "bonus_menu")
-def bonus_callback(call):
-    bot.answer_callback_query(call.id)
-    uid = str(call.from_user.id)
-    now, last, cd = int(time.time()), data["players"].get(uid, {}).get("last_bonus", 0), 86400
-    if now - last < cd: msg = f"⏳ Бонус через: **{(cd-(now-last))//3600} ч. {((cd-(now-last))%3600)//60} мин.**"
-    else:
-        amt = random.randint(1000, 2000)
-        add_balance(uid, amt)
-        data["players"][uid]["last_bonus"] = now
-        save_data()
-        msg = f"🎁 **БОНУС!**\n+{amt} Mon1Coin 🪙"
-    bot.edit_message_text(msg, call.message.chat.id, call.message.message_id, reply_markup=main_menu(), parse_mode="Markdown")
-
-@bot.callback_query_handler(func=lambda call: call.data == "top_menu")
-def top_callback(call):
-    bot.answer_callback_query(call.id)
-    s = sorted(data["players"].items(), key=lambda x: x[1].get("balance", 0), reverse=True)[:10]
-    text = "🏆 **ТОП-10**\n\n" + "".join([f"{i}. {p.get('username','?')} — {p.get('balance',0)} 🪙\n" for i, (u, p) in enumerate(s, 1)])
-    bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=main_menu(), parse_mode="Markdown")
-
-# --- КЛАНЫ ---
-@bot.callback_query_handler(func=lambda call: call.data == "clan_menu")
-def clan(call):
-    bot.answer_callback_query(call.id); uid=str(call.from_user.id); p=data["players"].get(uid,{})
-    if p.get("clan_id"):
-        c_id=p["clan_id"]; c=data["clans"].get(str(c_id),{}); b=data["clan_bosses"].get(str(c_id),{"level":1,"hp":1000,"max_hp":1000})
-        kb=InlineKeyboardMarkup(row_width=2).add(InlineKeyboardButton("⚔️ Босс", callback_data="attack_boss"), InlineKeyboardButton("⬅️ Назад", callback_data="back"))
-        text=f"🛡 **Клан: {c.get('name','?')}**\n🆔 ID: `{c_id}`\n👥 Игроков: {len([m for m in data['players'].values() if m.get('clan_id')==c_id])}/15\n\n🐉 **БОСС Ур. {b['level']}**\n❤️ HP: {b['hp']}/{b['max_hp']}"
-    else:
-        kb=InlineKeyboardMarkup(row_width=1).add(InlineKeyboardButton("➕ Создать (5000)", callback_data="create_clan"), InlineKeyboardButton("🔍 Вступить", callback_data="join_clan_prompt"), InlineKeyboardButton("⬅️ Назад", callback_data="back"))
-        text="🛡 **Кланы**\nТы без клана."
-    bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=kb, parse_mode="Markdown")
-
-@bot.callback_query_handler(func=lambda call: call.data == "create_clan")
-def c_clan(call):
-    bot.answer_callback_query(call.id)
-    if get_balance(call.from_user.id) < 5000:
-        return bot.send_message(call.message.chat.id, "❌ Недостаточно средств! Нужно 5000.")
-    msg = bot.send_message(call.message.chat.id, "Введите имя клана (до 15 символов):")
-    bot.register_next_step_handler(msg, save_clan)
-
-def save_clan(m):
+# --- ИГРА МИНЫ ---
+@bot.message_handler(func=lambda m: m.text.lower().startswith("мины"))
+def start_mines(message):
+    uid = str(message.from_user.id)
     try:
-        uid = str(m.from_user.id); name = m.text.strip()[:15]
-        if not name: return bot.reply_to(m, "❌ Имя не может быть пустым.")
-        if get_balance(uid) < 5000: return bot.reply_to(m, "❌ У вас нет 5000.")
-        cid = str(random.randint(1000, 9999))
-        while cid in data["clans"]: cid = str(random.randint(1000, 9999))
-        add_balance(uid, -5000)
-        data["clans"][cid] = {"name": name, "owner_id": uid, "owner_name": get_nick(uid)}
-        data["players"][uid]["clan_id"] = cid
-        data["clan_bosses"][cid] = {"level": 1, "hp": 1000, "max_hp": 1000}
+        parts = message.text.split()
+        bet = int(parts[1])
+        bmb = int(parts[2]) if len(parts) > 2 else 3
+        
+        if bet <= 0 or get_balance(uid) < bet: return bot.reply_to(message, "❌ Недостаточно средств.")
+        if bmb not in MULT: return bot.reply_to(message, "❌ Доступно мин: 2, 3, 5, 9.")
+        
+        add_balance(uid, -bet)
+        gid = str(random.randint(10000, 99999))
+        data["active_games"][gid] = {"type": "mines", "user": uid, "bet": bet, "mines": random.sample(range(25), bmb), "opened": [], "bombs": bmb}
         save_data()
-        bot.reply_to(m, f"✅ Клан **{name}** создан! ID: `{cid}`", parse_mode="Markdown", reply_markup=main_menu())
-    except: bot.reply_to(m, "❌ Ошибка.")
+        
+        bot.reply_to(message, f"💣 **МИНЫ** (Игра #{gid})\nСтавка: {bet} 🪙\nМин: {bmb}\n\nНажмите на клетки.", reply_markup=mines_kb(gid), parse_mode="Markdown")
+    except: bot.reply_to(message, "❌ `мины 1000 3`")
 
-@bot.callback_query_handler(func=lambda call: call.data == "join_clan_prompt")
-def j_clan(call):
-    bot.answer_callback_query(call.id)
-    msg = bot.send_message(call.message.chat.id, "Введите ID клана:")
-    bot.register_next_step_handler(msg, do_join)
+def mines_kb(gid):
+    g = data["active_games"].get(gid)
+    if not g: return None
+    kb = InlineKeyboardMarkup(row_width=5)
+    for r in range(5):
+        row = [InlineKeyboardButton("💎" if (r*5+c) in g["opened"] else "❔", callback_data=f"m_{gid}_{r*5+c}") for c in range(5)]
+        kb.row(*row)
+    kb.row(InlineKeyboardButton("⭐ ЗАБРАТЬ", callback_data=f"mcash_{gid}"))
+    return kb
 
-def do_join(m):
-    try:
-        uid = str(m.from_user.id); cid = m.text.strip()
-        if cid not in data["clans"]: return bot.reply_to(m, "❌ Не найден.")
-        if len([x for x in data["players"].values() if x.get("clan_id") == cid]) >= 15: return bot.reply_to(m, "❌ Полон (15).")
-        data["players"][uid]["clan_id"] = cid
-        save_data()
-        bot.reply_to(m, f"✅ Вступил в **{data['clans'][cid]['name']}**!", parse_mode="Markdown", reply_markup=main_menu())
-    except: bot.reply_to(m, "❌ Ошибка.")
-
-# --- МАГАЗИН (ПОЛНОСТЬЮ ИСПРАВЛЕН) ---
-@bot.callback_query_handler(func=lambda call: call.data == "shop_menu")
-def shop(call):
-    bot.answer_callback_query(call.id)
-    p = data["players"].get(str(call.from_user.id), {})
-    kb = InlineKeyboardMarkup(row_width=1).add(InlineKeyboardButton("🗡 Оружие (2000)", callback_data="buy_weapon"), InlineKeyboardButton("🛡 Броня (2000)", callback_data="buy_armor"), InlineKeyboardButton("⬅️ Назад", callback_data="back"))
-    text = f"⚔️ **Магазин**\n🗡 Оружие: ур.{p.get('weapon', 1)}\n🛡 Броня: ур.{p.get('armor', 1)}\n🪙 Баланс: {get_balance(call.from_user.id)}"
-    bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=kb, parse_mode="Markdown")
-
-@bot.callback_query_handler(func=lambda call: call.data in ["buy_weapon", "buy_armor"])
-def buy(call):
-    bot.answer_callback_query(call.id)
-    uid = str(call.from_user.id)
-    if get_balance(uid) < 2000:
-        return bot.answer_callback_query(call.id, "❌ Мало денег!", show_alert=True)
+@bot.callback_query_handler(func=lambda call: call.data.startswith("m_"))
+def mines_play(call):
+    _, gid, cell = call.data.split("_"); cell = int(cell)
+    uid = str(call.from_user.id); g = data["active_games"].get(gid)
     
-    add_balance(uid, -2000)
-    if call.data == "buy_weapon":
-        data["players"][uid]["weapon"] += 1
-    else:
-        data["players"][uid]["armor"] += 1
+    if not g or g["user"] != uid: return bot.answer_callback_query(call.id, "❌ Игра не найдена.")
+    if cell in g["opened"]: return bot.answer_callback_query(call.id, "❌ Уже открыто.")
+    
+    if cell in g["mines"]:
+        del data["active_games"][gid]; save_data()
+        kb = InlineKeyboardMarkup(row_width=5)
+        for r in range(5):
+            kb.row(*[InlineKeyboardButton("💣" if (r*5+c) in g["mines"] else "💎", callback_data="ignore") for c in range(5)])
+        bot.edit_message_text(f"💥 **МИНА!** Потеряно {g['bet']} 🪙.", call.message.chat.id, call.message.message_id, reply_markup=kb, parse_mode="Markdown")
+        return
+        
+    g["opened"].append(cell)
+    mult = MULT[g["bombs"]] ** len(g["opened"]); reward = math.floor(g["bet"] * mult)
     save_data()
-    
-    # Обновляем сообщение магазина без вызова функции shop()
-    p = data["players"].get(uid, {})
-    kb = InlineKeyboardMarkup(row_width=1).add(InlineKeyboardButton("🗡 Оружие (2000)", callback_data="buy_weapon"), InlineKeyboardButton("🛡 Броня (2000)", callback_data="buy_armor"), InlineKeyboardButton("⬅️ Назад", callback_data="back"))
-    text = f"⚔️ **Магазин**\n🗡 Оружие: ур.{p.get('weapon', 1)}\n🛡 Броня: ур.{p.get('armor', 1)}\n🪙 Баланс: {get_balance(uid)}"
-    bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=kb, parse_mode="Markdown")
+    bot.edit_message_text(f"💣 **МИНЫ**\nСтавка: {g['bet']} 🪙\nОткрыто: {len(g['opened'])}\nМнож: x{mult:.2f}\nЗабрать: {reward} 🪙", call.message.chat.id, call.message.message_id, reply_markup=mines_kb(gid), parse_mode="Markdown")
 
-@bot.callback_query_handler(func=lambda call: call.data == "attack_boss")
-def boss(call):
-    bot.answer_callback_query(call.id); uid=str(call.from_user.id); cid=data["players"].get(uid,{}).get("clan_id")
-    if not cid: return
-    b=data["clan_bosses"].get(str(cid)); w=data["players"][uid].get("weapon",1); a=data["players"][uid].get("armor",1)
-    dmg=w*random.randint(10,20); b["hp"]-=dmg
-    if b["hp"]<=0:
-        rw=500*b["level"]; add_balance(uid,rw); b["level"]+=1; b["max_hp"]+=1000; b["hp"]=b["max_hp"]
-        msg=f"🎉 **БОСС УБИТ!**\n+{rw} 🪙"
-    else:
-        cd=max(1,random.randint(10,20)-(a*5)); data["players"][uid]["balance"]=max(0,get_balance(uid)-cd)
-        msg=f"⚔️ Урон: {dmg}\nБосс бьет: {cd}"
-    save_data(); bot.send_message(call.message.chat.id, msg, parse_mode="Markdown", reply_markup=main_menu())
+@bot.callback_query_handler(func=lambda call: call.data.startswith("mcash_"))
+def mines_cashout(call):
+    gid = call.data.split("_")[1]; uid = str(call.from_user.id); g = data["active_games"].get(gid)
+    if not g or g["user"] != uid or not g["opened"]: return
+    reward = math.floor(g["bet"] * (MULT[g["bombs"]] ** len(g["opened"])))
+    add_balance(uid, reward); del data["active_games"][gid]; save_data()
+    bot.edit_message_text(f"🏆 **Забрано!** +{reward} 🪙", call.message.chat.id, call.message.message_id, reply_markup=None, parse_mode="Markdown")
 
-# --- ИГРЫ ---
-@bot.callback_query_handler(func=lambda call: call.data == "game_crash")
-def crash(call):
-    bot.answer_callback_query(call.id)
-    bot.edit_message_text("🚀 Введите: `краш 1000`", call.message.chat.id, call.message.message_id, reply_markup=main_menu(), parse_mode="Markdown")
-def start_crash(uid,cid,bet):
-    if get_balance(uid)<bet: return bot.send_message(cid,"❌ Мало.")
-    add_balance(uid,-bet); crash_games[uid]={"bet":bet,"cp":round(random.uniform(1.1,100.0),2),"cur":1.0,"act":True}
-    msg=bot.send_message(cid,f"🚀 CRASH\nСтавка: {bet}\nКоэф: x1.00", reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("💰 ЗАБРАТЬ", callback_data="crash_cashout")))
-    threading.Thread(target=crash_loop,args=(uid,cid,msg.message_id)).start()
-def crash_loop(uid,cid,mid):
+# --- ИГРА КРАШ (x10 и частые краши) ---
+@bot.message_handler(func=lambda m: m.text.lower().startswith("краш"))
+def start_crash(message):
+    uid = str(message.from_user.id)
+    try:
+        bet = int(message.text.split()[1])
+        if bet <= 0 or get_balance(uid) < bet: return bot.reply_to(message, "❌ Недостаточно средств.")
+        
+        add_balance(uid, -bet)
+        gid = str(random.randint(10000, 99999))
+        data["active_games"][gid] = {"type": "crash", "user": uid, "bet": bet, "crash_point": round(random.uniform(1.1, 10.0), 2), "current": 1.0, "active": True}
+        save_data()
+        
+        kb = InlineKeyboardMarkup().add(InlineKeyboardButton("💰 ЗАБРАТЬ", callback_data=f"ccash_{gid}"))
+        msg = bot.reply_to(message, f"🚀 **CRASH**\nСтавка: {bet}\nКоэф: x1.00", reply_markup=kb)
+        threading.Thread(target=crash_loop, args=(gid, uid, msg.chat.id, msg.message_id)).start()
+    except: bot.reply_to(message, "❌ `краш 1000`")
+
+def crash_loop(gid, uid, chat_id, msg_id):
     time.sleep(1)
     while True:
-        g=crash_games.get(uid)
-        if not g or not g["act"]: break
-        g["cur"]+= 0.1 if g["cur"]<10 else (0.5 if g["cur"]<50 else 1.0); g["cur"]=round(g["cur"],2)
-        if g["cur"]>=g["cp"]:
-            g["act"]=False; bot.edit_message_text(f"💥 КРАШ на x{g['cp']:.2f}!\nПотеряно {g['bet']} 🪙.", cid, mid); break
-        try: bot.edit_message_text(f"🚀 CRASH\nСтавка: {g['bet']}\nКоэф: x{g['cur']:.2f}", cid, mid, reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("💰 ЗАБРАТЬ", callback_data="crash_cashout")))
+        g = data["active_games"].get(gid)
+        if not g or not g["active"]: break
+        
+        g["current"] = round(g["current"] + 0.1, 2)
+        save_data()
+        
+        # Добавлен шанс краша на каждом шаге (делает игру сложнее)
+        if g["current"] >= g["crash_point"] or random.random() < 0.1: # 10% шанс на краш каждый тик
+            g["active"] = False; save_data()
+            try: bot.edit_message_text(f"💥 **КРАШ на x{g['current']:.2f}!**\nПотеряно {g['bet']} 🪙.", chat_id, msg_id, reply_markup=None, parse_mode="Markdown")
+            except: pass
+            del data["active_games"][gid]; save_data(); break
+            
+        kb = InlineKeyboardMarkup().add(InlineKeyboardButton("💰 ЗАБРАТЬ", callback_data=f"ccash_{gid}"))
+        try: bot.edit_message_text(f"🚀 **CRASH**\nСтавка: {g['bet']}\nКоэф: x{g['current']:.2f}", chat_id, msg_id, reply_markup=kb, parse_mode="Markdown")
         except: pass
         time.sleep(1)
-@bot.callback_query_handler(func=lambda call: call.data == "crash_cashout")
-def crash_out(call):
-    g=crash_games.get(call.from_user.id)
-    if not g or not g["act"]: return
-    g["act"]=False; rw=math.floor(g["bet"]*g["cur"]); add_balance(call.from_user.id,rw)
-    bot.edit_message_text(f"🏆 Забрано: +{rw} 🪙", call.message.chat.id, call.message.message_id, reply_markup=main_menu())
 
-@bot.callback_query_handler(func=lambda call: call.data == "game_mines")
-def mines(call):
-    bot.answer_callback_query(call.id)
-    bot.edit_message_text("💣 Введите: `мины 1000 3`", call.message.chat.id, call.message.message_id, reply_markup=main_menu(), parse_mode="Markdown")
-MULT={2:1.10,3:1.15,5:1.25,9:1.45}
-def start_mines(uid,cid,bet,bmb):
-    if get_balance(uid)<bet: return bot.send_message(cid,"❌ Мало.")
-    if bmb not in MULT: return bot.send_message(cid,"❌ Мины: 2,3,5,9")
-    add_balance(uid,-bet); mines_games[uid]={"bet":bet,"b":bmb,"m":set(random.sample(range(25),bmb)),"o":set(),"f":False}
-    bot.send_message(cid,mines_txt(uid), reply_markup=mines_kb(uid), parse_mode="Markdown")
-def mines_txt(uid):
-    g=mines_games[uid]; o=len(g["o"]); m=MULT[g["b"]]**o if o>0 else 1.0; rw=math.floor(g["bet"]*m)
-    return f"💣 MINES\nСтавка: {g['bet']}\nМин: {g['b']}\nОткрыто: {o}\nМнож: x{m:.2f}\nЗабрать: {rw}"
-def mines_kb(uid):
-    g=mines_games[uid]; kb=InlineKeyboardMarkup(row_width=5)
-    for r in range(5):
-        row=[]
-        for c in range(5):
-            i=r*5+c; s="💎" if i in g["o"] else ("💣" if g["f"] and i in g["m"] else ("▫️" if g["f"] else "❔"))
-            row.append(InlineKeyboardButton(s, callback_data=f"mc_{i}"))
-        kb.row(*row)
-    if not g["f"] and g["o"]: kb.row(InlineKeyboardButton("⭐ ЗАБРАТЬ", callback_data="m_out"))
-    return kb
-@bot.callback_query_handler(func=lambda call: call.data.startswith("mc_") or call.data == "m_out")
-def mines_play(call):
-    uid=call.from_user.id; g=mines_games.get(uid)
-    if not g or g["f"]: return
-    if call.data=="m_out":
-        rw=math.floor(g["bet"]*(MULT[g["b"]]**len(g["o"]))); add_balance(uid,rw); g["f"]=True
-        bot.edit_message_text(f"🏆 Забрано: {rw} 🪙", call.message.chat.id, call.message.message_id, reply_markup=main_menu()); return
-    i=int(call.data.split("_")[1])
-    if i in g["m"]: g["f"]=True; bot.edit_message_text(f"💥 МИНА! Потеряно {g['bet']} 🪙.", call.message.chat.id, call.message.message_id, reply_markup=main_menu())
-    else: g["o"].add(i); bot.edit_message_text(mines_txt(uid), call.message.chat.id, call.message.message_id, reply_markup=mines_kb(uid), parse_mode="Markdown")
+@bot.callback_query_handler(func=lambda call: call.data.startswith("ccash_"))
+def crash_cashout(call):
+    gid = call.data.split("_")[1]; uid = str(call.from_user.id); g = data["active_games"].get(gid)
+    if not g or g["user"] != uid or not g["active"]: return
+    g["active"] = False; reward = math.floor(g["bet"] * g["current"]); add_balance(uid, reward)
+    del data["active_games"][gid]; save_data()
+    bot.edit_message_text(f"🏆 **Забрано на x{g['current']:.2f}!** +{reward} 🪙", call.message.chat.id, call.message.message_id, reply_markup=None, parse_mode="Markdown")
 
-@bot.callback_query_handler(func=lambda call: call.data == "game_roulette")
-def roul(call):
-    bot.answer_callback_query(call.id)
-    bot.edit_message_text(f"🎰 **РУЛЕТКА**\n\n📜 {get_history_roulette()}\n\n`1000 на 1 на 5`\n`500 на red`", call.message.chat.id, call.message.message_id, reply_markup=main_menu(), parse_mode="Markdown")
+# --- РУЛЕТКА ---
+@bot.message_handler(func=lambda m: " на " in m.text.lower() and m.text.lower().split()[0].isdigit())
+def roulette(message):
+    uid = str(message.from_user.id); t = message.text.lower().strip(); p = t.split()
+    try:
+        bet = int(p[0]); targets = [p[i] for i in range(2, len(p)) if p[i] != "на"]; cost = bet * len(targets)
+        if cost <= 0 or get_balance(uid) < cost: return bot.reply_to(message, f"❌ Нужно {cost} 🪙.")
+        
+        add_balance(uid, -cost); wn = random.randint(0, 36); wc = "green" if wn == 0 else ("red" if 1 <= wn <= 18 else "black"); sym = {"green": "🟢", "red": "🔴", "black": "⚫️"}[wc]
+        tw = 0; res = []
+        for x in targets:
+            win, mlt = False, 0
+            if "-" in x:
+                try: s, e = map(int, x.split("-")); mlt = max(1, math.floor(37 / (e - s + 1))) if s <= wn <= e else 0
+                except: pass
+            elif x.isdigit():
+                if int(x) == wn: win, mlt = True, 36
+            elif x in ["red", "к", "кр"]: 
+                if wc == "red": win, mlt = True, 2
+            elif x in ["black", "ч"]:
+                if wc == "black": win, mlt = True, 2
+            elif x in ["green", "з"]:
+                if wc == "green": win, mlt = True, 36
+            elif x in ["even", "чет"]:
+                if wn != 0 and wn % 2 == 0: win, mlt = True, 2
+            elif x in ["odd", "нечет"]:
+                if wn % 2 != 0: win, mlt = True, 2
+            if win: r = bet * mlt; tw += r; res.append(f"✅ {bet} на {x} (+{r})")
+            else: res.append(f"❌ {bet} на {x}")
+        add_balance(uid, tw); bot.reply_to(message, f"🎰 {sym} **{wn}**\n" + "\n".join(res) + f"\n💰 Итог: {tw} 🪙", parse_mode="Markdown")
+    except: bot.reply_to(message, "❌ `1000 на 5`")
 
-@bot.callback_query_handler(func=lambda call: call.data == "donate_menu")
-def donate(call):
-    bot.answer_callback_query(call.id)
-    kb=InlineKeyboardMarkup(row_width=1).add(InlineKeyboardButton("⭐ 50 Звезд (5000)", callback_data="pay_50"), InlineKeyboardButton("⭐ 100 Звезд (12000)", callback_data="pay_100"))
-    bot.edit_message_text("💖 Донат:", call.message.chat.id, call.message.message_id, reply_markup=kb)
+# --- КЛАНЫ ---
+@bot.message_handler(func=lambda m: m.text.lower().strip() in ["мой клан", "клан"])
+def my_clan_info(message):
+    uid = str(message.from_user.id); p = data["players"].get(uid, {})
+    if not p.get("clan_id"): return bot.reply_to(message, "🛡 У вас нет клана.\n`создать клан ИМЯ` (5000)\n`вступить клан ID`", parse_mode="Markdown")
+    cid = str(p["clan_id"]); clan = data["clans"].get(cid)
+    if not clan: return bot.reply_to(message, "❌ Клан удален.")
+    members = [f"@{m.get('username')} ({m.get('role')})" for m in data["players"].values() if m.get("clan_id") == cid]
+    text = f"🛡 **Клан: {clan['name']}**\n🆔 ID: `{cid}`\n👑 Создатель: @{clan['owner_name']}\n👥 Участники: {len(members)}/15\n💰 Казна: {clan.get('treasury', 0)} 🪙\n\nВаша роль: **{p.get('role', 'игрок').upper()}**\n\n" + "\n".join(members)
+    bot.reply_to(message, text, parse_mode="Markdown")
+
+@bot.message_handler(func=lambda m: m.text.lower().strip() == "топ кланов")
+def clans_top(message):
+    if not data["clans"]: return bot.reply_to(message, "Нет кланов.")
+    sorted_clans = sorted(data["clans"].items(), key=lambda x: x[1].get("treasury", 0), reverse=True)[:10]
+    text = "🏆 **ТОП КЛАНОВ**\n\n" + "".join([f"{i}. {c['name']} — {c.get('treasury',0)} 🪙 (ID: {cid})\n" for i, (cid, c) in enumerate(sorted_clans, 1)])
+    bot.reply_to(message, text, parse_mode="Markdown")
+
+@bot.message_handler(func=lambda m: m.text.lower().startswith("создать клан"))
+def create_clan(message):
+    uid = str(message.from_user.id)
+    if data["players"][uid].get("clan_id"): return bot.reply_to(message, "❌ Вы уже в клане.")
+    if get_balance(uid) < 5000: return bot.reply_to(message, "❌ Нужно 5000 🪙.")
+    parts = message.text.split(maxsplit=2)
+    if len(parts) < 3: return bot.reply_to(message, "❌ `создать клан ИМЯ`", parse_mode="Markdown")
+    cid = str(random.randint(1000, 9999))
+    while cid in data["clans"]: cid = str(random.randint(1000, 9999))
+    add_balance(uid, -5000); data["clans"][cid] = {"name": parts[2][:15], "owner_id": uid, "owner_name": get_nick(uid), "treasury": 0}
+    data["players"][uid]["clan_id"] = cid; data["players"][uid]["role"] = "создатель"; save_data()
+    bot.reply_to(message, f"✅ Клан **{parts[2][:15]}** создан! ID: `{cid}`", parse_mode="Markdown")
+
+@bot.message_handler(func=lambda m: m.text.lower().startswith("вступить клан"))
+def join_clan(message):
+    uid = str(message.from_user.id)
+    if data["players"][uid].get("clan_id"): return bot.reply_to(message, "❌ Вы уже в клане.")
+    parts = message.text.split()
+    if len(parts) < 3 or parts[2] not in data["clans"]: return bot.reply_to(message, "❌ Клан не найден.")
+    cid = parts[2]
+    if len([m for m in data["players"].values() if m.get("clan_id") == cid]) >= 15: return bot.reply_to(message, "❌ Клан полон (15).")
+    data["players"][uid]["clan_id"] = cid; data["players"][uid]["role"] = "игрок"; save_data()
+    bot.reply_to(message, f"✅ Вы вступили в **{data['clans'][cid]['name']}**!", parse_mode="Markdown")
+
+@bot.message_handler(func=lambda m: m.text.lower().startswith("пополнить казну"))
+def add_treasury(message):
+    uid = str(message.from_user.id); cid = data["players"][uid].get("clan_id")
+    if not cid: return bot.reply_to(message, "❌ Вы не в клане.")
+    try:
+        amount = int(message.text.split()[2])
+        if amount <= 0 or get_balance(uid) < amount: return bot.reply_to(message, "❌ Ошибка суммы.")
+        add_balance(uid, -amount); data["clans"][cid]["treasury"] = data["clans"][cid].get("treasury", 0) + amount; save_data()
+        bot.reply_to(message, f"✅ Казна пополнена на {amount} 🪙!")
+    except: bot.reply_to(message, "❌ `пополнить казну 1000`")
+
+@bot.message_handler(func=lambda m: m.text.lower().strip() == "выйти из клана")
+def leave_clan(message):
+    uid = str(message.from_user.id); cid = data["players"][uid].get("clan_id")
+    if not cid: return bot.reply_to(message, "❌ Вы не в клане.")
+    if data["players"][uid].get("role") == "создатель":
+        members = [m for m in data["players"].items() if m[1].get("clan_id") == cid and m[0] != uid]
+        if members:
+            new_owner = random.choice(members); data["players"][new_owner[0]]["role"] = "создатель"; data["clans"][cid]["owner_id"] = new_owner[0]; data["clans"][cid]["owner_name"] = get_nick(new_owner[0])
+        else: del data["clans"][cid]
+    data["players"][uid]["clan_id"] = None; data["players"][uid]["role"] = "none"; save_data()
+    bot.reply_to(message, "✅ Вы покинули клан.")
+
+# --- РОЛИ ---
+def has_perm(uid, act):
+    role = data["players"][uid].get("role", "none")
+    if role == "создатель": return True
+    if role == "заместитель" and act in ["rename", "appoint", "kick"]: return True
+    if role == "модер" and act == "rename": return True
+    return False
+
+@bot.message_handler(func=lambda m: m.text.lower().startswith("переименовать клан"))
+def rename_clan(message):
+    uid = str(message.from_user.id)
+    if not has_perm(uid, "rename"): return bot.reply_to(message, "❌ Нет прав.")
+    parts = message.text.split(maxsplit=2)
+    if len(parts) < 3: return bot.reply_to(message, "❌ `переименовать клан ИМЯ`")
+    cid = data["players"][uid]["clan_id"]; data["clans"][cid]["name"] = parts[2][:15]; save_data()
+    bot.reply_to(message, "✅ Клан переименован!")
+
+@bot.message_handler(func=lambda m: m.text.lower().startswith("назначить"))
+def appoint(message):
+    uid = str(message.from_user.id)
+    if not has_perm(uid, "appoint"): return bot.reply_to(message, "❌ Нет прав.")
+    try:
+        parts = message.text.split(); role, target = parts[1].lower(), parts[2].replace("@", "")
+        if role not in ["модер", "заместитель"]: raise ValueError
+        cid = data["players"][uid]["clan_id"]
+        t_uid = next((u for u, p in data["players"].items() if p.get("username", "").lower() == target.lower() and p.get("clan_id") == cid), None)
+        if not t_uid: return bot.reply_to(message, "❌ Игрок не найден.")
+        data["players"][t_uid]["role"] = role; save_data()
+        bot.reply_to(message, f"✅ @{target} назначен {role}.")
+    except: bot.reply_to(message, "❌ `назначить РОЛЬ @username`")
+
+@bot.message_handler(func=lambda m: m.text.lower().startswith("кикнуть"))
+def kick(message):
+    uid = str(message.from_user.id)
+    if not has_perm(uid, "kick"): return bot.reply_to(message, "❌ Нет прав.")
+    try:
+        target = message.text.split()[1].replace("@", ""); cid = data["players"][uid]["clan_id"]
+        t_uid = next((u for u, p in data["players"].items() if p.get("username", "").lower() == target.lower() and p.get("clan_id") == cid), None)
+        if not t_uid: return bot.reply_to(message, "❌ Игрок не найден.")
+        data["players"][t_uid]["clan_id"] = None; data["players"][t_uid]["role"] = "none"; save_data()
+        bot.reply_to(message, f"✅ @{target} кикнут.")
+    except: bot.reply_to(message, "❌ `кикнуть @username`")
+
+# --- ПОМОЩЬ ---
+@bot.message_handler(func=lambda m: m.text.lower().strip() == "помощь")
+def help_cmd(message):
+    text = (
+        "📖 **ПОЛНАЯ ИНСТРУКЦИЯ**\n\n"
+        "**👤 БАЗОВЫЕ**\n`б` — баланс\n`профиль` — ID\n`бонус` — 24ч\n`сменить ник ИМЯ`\n\n"
+        "**🎮 ИГРЫ**\n`мины СУММА МИНЫ`\n`краш СУММА`\n`СУММА на ЦИФРА`\n\n"
+        "**🛡 КЛАНЫ**\n`создать клан ИМЯ` (5000)\n`вступить клан ID`\n`мой клан`\n`топ кланов`\n`пополнить казну СУММА`\n`выйти из клана`\n\n"
+        "**👑 УПРАВЛЕНИЕ**\n`переименовать клан ИМЯ`\n`назначить РОЛЬ @username`\n`кикнуть @username`\n\n"
+        "**💳 ДОНАТ**\n1 ⭐ = 500 Mon1Coin\n`/donate`\n\n"
+        "**⚙️ АДМИН**\n`/give ИГРОВОЙ_ID СУММА`\n`/reset ИГРОВОЙ_ID`\n`/wipe`\n`/createpromo КОД СУММА ЮЗЫ`"
+    )
+    bot.reply_to(message, text, parse_mode="Markdown")
+
+# --- ДОНАТ ---
+@bot.message_handler(commands=['donate'])
+def donate_cmd(message):
+    kb = InlineKeyboardMarkup(row_width=1).add(
+        InlineKeyboardButton("⭐ 50 Звезд (25 000)", callback_data="pay_50"),
+        InlineKeyboardButton("⭐ 100 Звезд (50 000)", callback_data="pay_100"),
+        InlineKeyboardButton("⭐ 250 Звезд (125 000)", callback_data="pay_250")
+    )
+    bot.send_message(message.chat.id, "💖 **Донат**\nВыберите пакет:", reply_markup=kb, parse_mode="Markdown")
+
 @bot.callback_query_handler(func=lambda call: call.data.startswith("pay_"))
 def pay(call):
-    s=int(call.data.split("_")[1]); c={50:5000,100:12000}[s]
+    s = int(call.data.split("_")[1]); c = s * 500
     bot.answer_callback_query(call.id)
-    bot.send_invoice(call.message.chat.id,"Донат",f"+{c} Mon1Coin",f"don_{s}_{c}","","XTR",[LabeledPrice("Донат",s)])
+    bot.send_invoice(call.message.chat.id, "Донат", f"+{c} Mon1Coin", f"don_{s}_{c}", "", "XTR", [LabeledPrice("Донат", s)])
+
 @bot.pre_checkout_query_handler(func=lambda q: True)
-def pre_chk(q): bot.answer_pre_checkout_query(q.id,ok=True)
+def pre_chk(q): bot.answer_pre_checkout_query(q.id, ok=True)
+
 @bot.message_handler(content_types=['successful_payment'])
 def success(m):
-    p=m.successful_payment.invoice_payload
+    p = m.successful_payment.invoice_payload
     if p.startswith("don_"):
-        c=int(p.split("_")[2]); add_balance(m.from_user.id,c)
-        bot.send_message(m.chat.id,f"🎉 +{c} 🪙")
+        c = int(p.split("_")[2]); add_balance(m.from_user.id, c); bot.send_message(m.chat.id, f"🎉 +{c} 🪙")
 
-# --- АДМИНКА (ИСПРАВЛЕНА) ---
+# --- АДМИН И БАЗА ---
+@bot.message_handler(func=lambda m: m.text.lower().strip() in ["б", "баланс"])
+def bal_cmd(message): bot.reply_to(message, f"🪙 Баланс: {get_balance(message.from_user.id)} Mon1Coin")
+
+@bot.message_handler(func=lambda m: m.text.lower().strip() == "профиль")
+def profile_cmd(message):
+    uid = message.from_user.id; p = data["players"].get(str(uid), {}); c_info = "Нет"
+    if p.get("clan_id"): c_info = f"{data['clans'].get(str(p['clan_id']), {}).get('name', '?')} ({p.get('role', 'игрок')})"
+    bot.reply_to(message, f"👤 **Профиль**\n🆔 ID: `{p.get('short_id')}`\n📛 Ник: {get_nick(uid)}\n🪙 Баланс: {get_balance(uid)}\n🛡 Клан: {c_info}", parse_mode="Markdown")
+
+@bot.message_handler(func=lambda m: m.text.lower().strip() == "бонус")
+def bonus_cmd(message):
+    uid = str(message.from_user.id); now = int(time.time()); last = data["players"].get(uid, {}).get("last_bonus", 0)
+    if now - last < 86400: return bot.reply_to(message, f"⏳ Ждать: {(86400-(now-last))//3600} ч.")
+    amt = random.randint(1000, 2000); add_balance(uid, amt); data["players"][uid]["last_bonus"] = now; save_data()
+    bot.reply_to(message, f"🎁 **БОНУС!** +{amt} 🪙", parse_mode="Markdown")
+
 @bot.message_handler(commands=['give'])
 def give(m):
     if m.from_user.id not in ADMIN_IDS: return
     try:
-        a = m.text.split()[1:]
-        short_id = a[0]
-        amt = int(a[1])
-        
-        # Ищем реальный ID по короткому ID
-        real_uid = get_user_by_short_id(short_id)
-        if not real_uid:
-            return bot.reply_to(m, f"❌ Игрок с ID `{short_id}` не найден.", parse_mode="Markdown")
-            
-        add_balance(real_uid, amt)
-        bot.reply_to(m, f"✅ Выдано {amt} 🪙 игроку с ID {short_id}.")
-    except: 
-        bot.reply_to(m, "❌ `/give ИГРОВОЙ_ID СУММА`", parse_mode="Markdown")
+        a = m.text.split()[1:]; sid, amt = a[0], int(a[1]); real_uid = get_user_by_short_id(sid)
+        if not real_uid: return bot.reply_to(m, "❌ Игрок не найден.")
+        add_balance(real_uid, amt); bot.reply_to(m, f"✅ Выдано {amt} 🪙 игроку {sid}.")
+    except: bot.reply_to(m, "❌ `/give ID СУММА`", parse_mode="Markdown")
 
 @bot.message_handler(commands=['reset'])
 def rst(m):
     if m.from_user.id not in ADMIN_IDS: return
     try:
-        short_id = m.text.split()[1]
-        real_uid = get_user_by_short_id(short_id)
-        if real_uid:
-            data["players"][real_uid]["balance"] = 0
-            save_data()
-            bot.reply_to(m, f"♻️ Баланс игрока {short_id} сброшен.")
-        else: bot.reply_to(m, "❌ Игрок не найден.")
-    except: bot.reply_to(m,"❌ `/reset ИГРОВОЙ_ID`",parse_mode="Markdown")
+        sid = m.text.split()[1]; real_uid = get_user_by_short_id(sid)
+        if real_uid: data["players"][real_uid]["balance"] = 0; save_data(); bot.reply_to(m, "♻️ Сброшено.")
+    except: pass
 
 @bot.message_handler(commands=['wipe'])
 def wipe(m):
     if m.from_user.id not in ADMIN_IDS: return
-    for u in data["players"]: data["players"][u]["balance"]=1000
-    save_data(); bot.reply_to(m,"♻️ Все по 1000.")
+    for u in data["players"]: data["players"][u]["balance"] = 1000
+    save_data(); bot.reply_to(m, "♻️ Все по 1000.")
 
 @bot.message_handler(commands=['createpromo'])
 def promo(m):
     if m.from_user.id not in ADMIN_IDS: return
-    try: a=m.text.split()[1:]; data["promos"][a[0].upper()]={"amount":int(a[1]),"uses_left":int(a[2])}; save_data(); bot.reply_to(m,"✅ Создан.")
-    except: bot.reply_to(m,"❌ `/createpromo КОД СУММА ЮЗЫ`",parse_mode="Markdown")
+    try:
+        a = m.text.split()[1:]; data["promos"][a[0].upper()] = {"amount": int(a[1]), "uses_left": int(a[2])}
+        save_data(); bot.reply_to(m, "✅ Создан.")
+    except: bot.reply_to(m, "❌ `/createpromo КОД СУММА ЮЗЫ`", parse_mode="Markdown")
 
 @bot.message_handler(content_types=['text'])
-def txt(m):
+def handle_text(m):
     if m.text.startswith('/'): return
-    t=m.text.lower().strip(); p=t.split(); u=m.from_user.id
-    if t in ["б","баланс"]: return bot.reply_to(m,f"🪙 {get_balance(u)}")
-    if t in ["профиль","п"]: return bot.reply_to(m,f"👤 ID: `{get_user_short_id(u)}`\nНик: {get_nick(u)}",parse_mode="Markdown")
-    if t in ["помощь", "help"]: return send_help_text(m.chat.id)
-    if t=="бонус": return bonus_cb_logic(u,m.chat.id)
-    if p[0] in ["сменить","ник"] and len(p)>=2:
-        data["players"][str(u)]["username"]=" ".join(p[1:])[:15]; save_data(); return bot.reply_to(m,"✅ Ник изменен.")
-    if p[0] in ["мины","mines"] and len(p)>=2:
-        try: start_mines(u,m.chat.id,int(p[1]),int(p[2]) if len(p)>2 else 3)
-        except: bot.reply_to(m,"❌ `мины 1000 3`",parse_mode="Markdown")
-        return
-    if p[0] in ["краш","crash"] and len(p)>=2:
-        try: start_crash(u,m.chat.id,int(p[1]))
-        except: bot.reply_to(m,"❌ `краш 1000`",parse_mode="Markdown")
-        return
-    if " на " in t and len(p)>=3:
-        try:
-            bet=int(p[0]); tg=[p[i] for i in range(2,len(p)) if p[i]!="на"]; cost=bet*len(tg)
-            if get_balance(u)<cost: return bot.reply_to(m,f"❌ Нужно {cost} 🪙")
-            add_balance(u,-cost); wn=random.randint(0,36); wc="green" if wn==0 else ("red" if 1<=wn<=18 else "black"); sym={"green":"🟢","red":"🔴","black":"⚫️"}[wc]
-            data["history"].append({"number":wn,"color":wc}); save_data(); tw=0; res=[]
-            for x in tg:
-                win,mlt=False,0
-                if "-" in x:
-                    try:
-                        s,e=map(int,x.split("-"));
-                        if s<=wn<=e: mlt=max(1,math.floor(37/(e-s+1))); win=True
-                    except: pass
-                elif x.isdigit():
-                    if int(x)==wn: win,mlt=True,36
-                elif x in ["red","к","кр"]: 
-                    if wc=="red": win,mlt=True,2
-                elif x in ["black","ч"]:
-                    if wc=="black": win,mlt=True,2
-                elif x in ["green","з"]:
-                    if wc=="green": win,mlt=True,36
-                elif x in ["even","чет"]:
-                    if wn!=0 and wn%2==0: win,mlt=True,2
-                elif x in ["odd","нечет"]:
-                    if wn%2!=0: win,mlt=True,2
-                if win: r=bet*mlt; tw+=r; res.append(f"✅ {bet} на {x} (+{r})")
-                else: res.append(f"❌ {bet} на {x}")
-            add_balance(u,tw); bot.reply_to(m,f"🎰 {sym} **{wn}**\n"+"\n".join(res)+f"\n💰 Итог: {tw} 🪙",parse_mode="Markdown"); return
-        except ValueError: bot.reply_to(m,"❌ `1000 на 5`",parse_mode="Markdown")
-        return
-    if len(p)==1 and len(t)>3 and t.isalnum():
-        code=t.upper()
-        if code in data["promos"]:
-            pr=data["promos"][code]
-            if pr["uses_left"]<=0: return bot.reply_to(m,"❌ Не работает.")
-            if [str(u),code] in data["activations"]: return bot.reply_to(m,"❌ Уже активировали!")
-            add_balance(u,pr["amount"]); pr["uses_left"]-=1; data["activations"].append([str(u),code]); save_data()
-            return bot.reply_to(m,f"🎉 +{pr['amount']} 🪙")
+    t = m.text.lower().strip(); u = str(m.from_user.id)
+    if t.startswith("сменить ник"):
+        new_nick = m.text[11:].strip()[:15]
+        if new_nick: data["players"][u]["username"] = new_nick; save_data(); return bot.reply_to(m, "✅ Ник изменен.")
 
-def bonus_cb_logic(uid,cid):
-    now=int(time.time()); last=data["players"].get(str(uid),{}).get("last_bonus",0)
-    if now-last<86400: return bot.send_message(cid,f"⏳ Ждать: {(86400-(now-last))//3600} ч.")
-    amt=random.randint(1000,2000); add_balance(uid,amt); data["players"][str(uid)]["last_bonus"]=now; save_data()
-    bot.send_message(cid,f"🎁 +{amt} 🪙")
+    if len(t.split()) == 1 and len(t) > 3 and t.isalnum():
+        code = t.upper()
+        if code in data["promos"]:
+            pr = data["promos"][code]
+            if pr["uses_left"] <= 0: return bot.reply_to(m, "❌ Не работает.")
+            if [u, code] in data["activations"]: return bot.reply_to(m, "❌ Уже активировали!")
+            add_balance(u, pr["amount"]); pr["uses_left"] -= 1; data["activations"].append([u, code]); save_data()
+            return bot.reply_to(m, f"🎉 +{pr['amount']} 🪙")
+
+@bot.callback_query_handler(func=lambda call: call.data == "ignore")
+def ignore(call): bot.answer_callback_query(call.id)
 
 print("BOT STARTED")
 bot.infinity_polling(skip_pending=True)
