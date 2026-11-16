@@ -130,7 +130,7 @@ def send_donate_invoice(call):
             chat_id=call.message.chat.id,
             title="Поддержка Monix Casino",
             description=f"Вы получите {coins} Mon1Coin 🪙",
-            payload=f"donate_{stars}_{coins}",
+            invoice_payload=f"donate_{stars}_{coins}",
             provider_token="",  # Для звезд ВСЕГДА пустая строка
             currency="XTR",     # Валюта - Звезды
             prices=[LabeledPrice(label="Поддержка", amount=stars)]
