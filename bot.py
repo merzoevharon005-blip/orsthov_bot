@@ -146,18 +146,15 @@ def spin_wheel_logic(user_id, chat_id, bet, msg_id=None):
             multiplier = mult_val
             break
             
-    # Вычисляем изменение баланса
     change = int(bet * multiplier)
     
     if change > 0:
         add_balance(user_id, change)
         msg = f"🎡 Колесо крутится...\n\n🎉 Выпало: **{result_text}**!\nВаш выигрыш: +{change} 🪙\nБаланс: {get_balance(user_id)}"
     elif change < 0:
-        # При отрицательном множителе мы списываем дополнительно
         add_balance(user_id, change) 
         msg = f"🎡 Колесо крутится...\n\n💀 Выпало: **{result_text}**!\nВы потеряли: {abs(change)} 🪙\nБаланс: {get_balance(user_id)}"
     else:
-        # Возвращаем ставку
         add_balance(user_id, bet)
         msg = f"🎡 Колесо крутится...\n\n😐 Выпало: **{result_text}**!\nСтавка возвращена.\nБаланс: {get_balance(user_id)}"
 
@@ -548,3 +545,5 @@ def handle_all_text(message):
             add_balance(user_id, total_win)
             bot.reply_to(message, f"🎰 Выпало: {sym} **{win_num}**\n\n" + "\n".join(results) + f"\n\n💰 Итого: **{total_win} 🪙**\n🪙 Баланс: {get_balance(user_id)}", parse_mode="Markdown")
             return
+        except ValueError: 
+            return bot.reply_to(message,
