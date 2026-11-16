@@ -83,7 +83,7 @@ def main_menu():
         InlineKeyboardButton("💣 MINES", callback_data="game_mines"),
         InlineKeyboardButton("🚀 CRASH", callback_data="game_crash"),
         InlineKeyboardButton("🎰 РУЛЕТКА", callback_data="game_roulette"),
-        InlineKeyboardButton("🎡 КОЛЕСО", callback_data="game_wheel"), # Новая кнопка
+        InlineKeyboardButton("🎡 КОЛЕСО", callback_data="game_wheel"),
         InlineKeyboardButton("👤 ПРОФИЛЬ", callback_data="profile"),
         InlineKeyboardButton("🎁 БОНУС", callback_data="bonus_menu"),
         InlineKeyboardButton("❓ ПОМОЩЬ", callback_data="help_menu"),
@@ -118,25 +118,21 @@ def spin_wheel(call):
         bot.answer_callback_query(call.id, "❌ Недостаточно средств!", show_alert=True)
         return
     
-    # Списываем ставку
     add_balance(user_id, -100)
     
-    # Сектора колеса (шанс выпадения, множитель)
-    # Отрицательные значения - штраф, положительные - выигрыш
     sectors = [
-        (-50, 2, "💀 -50"),     # Штраф 50
-        (-100, 3, "💀 -100"),   # Штраф 100
-        (0, 10, "😐 0"),        # Ничего
-        (50, 15, "🪙 +50"),     # Выигрыш 50
-        (100, 20, "🪙 +100"),   # Выигрыш 100
-        (200, 20, "💰 +200"),   # Выигрыш 200
-        (500, 15, "💰 +500"),   # Выигрыш 500
-        (1000, 10, "💎 +1000"), # Выигрыш 1000
-        (5000, 4, "🔥 +5000"),  # Джекпот
-        (-200, 1, "☠️ -200"),   # Редкий штраф
+        (-50, 2, "💀 -50"),     
+        (-100, 3, "💀 -100"),   
+        (0, 10, "😐 0"),        
+        (50, 15, "🪙 +50"),     
+        (100, 20, "🪙 +100"),   
+        (200, 20, "💰 +200"),   
+        (500, 15, "💰 +500"),   
+        (1000, 10, "💎 +1000"), 
+        (5000, 4, "🔥 +5000"),  
+        (-200, 1, "☠️ -200"),   
     ]
     
-    # Взвешенный рандом
     total_weight = sum(weight for _, weight, _ in sectors)
     rand_val = random.randint(1, total_weight)
     current_weight = 0
@@ -154,7 +150,6 @@ def spin_wheel(call):
         add_balance(user_id, multiplier)
         msg = f"🎡 Колесо крутится...\n\n🎉 Выпало: **{result_text}**!\nВаш выигрыш: +{multiplier} 🪙\nБаланс: {get_balance(user_id)}"
     elif multiplier < 0:
-        # Уходим в минус (баланс может стать отрицательным)
         add_balance(user_id, multiplier)
         msg = f"🎡 Колесо крутится...\n\n💀 Выпало: **{result_text}**!\nВы потеряли: {abs(multiplier)} 🪙\nБаланс: {get_balance(user_id)}"
     else:
@@ -249,7 +244,7 @@ def send_help_text(chat_id):
         "`500 на red`\n"
         "`300 на 11-14`\n\n"
         "**🎡 КОЛЕСО**\n"
-        "Нажмите кнопку в меню. Ставка 100 🪙. Можно уйти в минус!\n\n"
+        "Нажмите кнопку в меню. Ставка 100 🪙.\n\n"
         "**👑 АДМИН**\n"
         "`/createpromo КОД СУММА АКТИВАЦИИ`\n"
         "`/give ID СУММА`\n"
@@ -284,7 +279,7 @@ def send_top_text(chat_id, msg_id=None):
     else:
         bot.send_message(chat_id, text, parse_mode="Markdown")
 
-# --- CRASH (ДО 100x) ---
+# --- CRASH ---
 @bot.callback_query_handler(func=lambda call: call.data == "game_crash")
 def crash_menu(call):
     bot.answer_callback_query(call.id)
@@ -533,4 +528,5 @@ def handle_all_text(message):
             return
         except ValueError: return bot.reply_to(message, "❌ Первое слово должно быть суммой. Пример: `1000 на 5`")
 
-print("MON1 CASINO (Fortune
+print("MON1 CASINO (Fortune Wheel) запущен!")
+bot.infinity_polling(skip_pending=True)
