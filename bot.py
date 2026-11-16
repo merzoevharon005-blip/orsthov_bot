@@ -7,7 +7,7 @@ import threading
 import re
 import json
 import pathlib
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, LabeledPrice
 
 TOKEN = os.getenv("BOT_TOKEN")
 if not TOKEN:
@@ -20,15 +20,14 @@ DATA_DIR = pathlib.Path("/app/data")
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DATA_FILE = DATA_DIR / "database.json"
 
-# Глобальные переменные для данных
 data = {
-    "players": {},       # {user_id: {"username": "...", "balance": 1000}}
-    "promos": {},        # {code: {"amount": 500, "uses_left": 10}}
-    "activations": [],   # [user_id, code]
-    "history": []        # [{number: 15, color: "red"}]
+    "players": {},
+    "promos": {},
+    "activations": [],
+    "history": [],
+    "transfers": []
 }
 
-# Загрузка данных при запуске
 def load_data():
     global data
     if DATA_FILE.exists():
@@ -41,7 +40,6 @@ def load_data():
     else:
         print("🆕 Создана новая база данных.")
 
-# Сохранение данных
 def save_data():
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
@@ -51,13 +49,11 @@ bot = telebot.TeleBot(TOKEN)
 
 mines_games = {}
 crash_games = {}
-roulette_sessions = {}
 
 # --- БАЗОВЫЕ ФУНКЦИИ ---
 def get_balance(user_id):
     uid = str(user_id)
-    if uid not in data["players"]:
-        return 0
+    if uid not in data["players"]: return 0
     return data["players"][uid].get("balance", 0)
 
 def add_balance(user_id, amount):
@@ -76,7 +72,7 @@ def register_user(user):
 def get_history_roulette():
     if not data["history"]: return "История пуста."
     res = []
-    for item in data["history"][-15:]: # Последние 15
+    for item in data["history"][-15:]:
         num, color = item["number"], item["color"]
         sym = "🟢" if color == "green" else ("🔴" if color == "red" else "⚫️")
         res.append(f"{sym}{num}")
@@ -89,9 +85,63 @@ def main_menu():
         InlineKeyboardButton("🚀 CRASH", callback_data="game_crash"),
         InlineKeyboardButton("🎰 РУЛЕТКА", callback_data="game_roulette"),
         InlineKeyboardButton("👤 ПРОФИЛЬ", callback_data="profile"),
-        InlineKeyboardButton("❓ ПОМОЩЬ", callback_data="help_menu")
+        InlineKeyboardButton("❓ ПОМОЩЬ", callback_data="help_menu"),
+        InlineKeyboardButton("⭐ ДОНАТ", callback_data="donate_menu") # Кнопка доната
     )
     return kb
+
+# --- ДОНАТ ЧЕРЕЗ ЗВЕЗДЫ ---
+@bot.callback_query_handler(func=lambda call: call.data == "donate_menu")
+def donate_menu(call):
+    bot.answer_callback_query(call.id)
+    kb = InlineKeyboardMarkup(row_width=1)
+    kb.add(
+        InlineKeyboardButton("⭐ 50 Звезд (5000 Mon1Coin)", callback_data="pay_50"),
+        InlineKeyboardButton("⭐ 100 Звезд (12000 Mon1Coin)", callback_data="pay_100"),
+        InlineKeyboardButton("⭐ 250 Звезд (35000 Mon1Coin)", callback_data="pay_250")
+    )
+    bot.edit_message_text("💖 **Поддержите проект!**\n\nВыберите пакет доната. Звезды спишутся с вашего баланса Telegram.", 
+                          call.message.chat.id, call.message.message_id, reply_markup=kb, parse_mode="Markdown")
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("pay_"))
+def send_donate_invoice(call):
+    stars = int(call.data.split("_")[1])
+    
+    # Определяем количество монет за донат
+    coins = {50: 5000, 100: 12000, 250: 35000}[stars]
+    
+    bot.answer_callback_query(call.id)
+    bot.send_invoice(
+        chat_id=call.message.chat.id,
+        title="Поддержка Monix Casino",
+        description=f"Вы получите {coins} Mon1Coin 🪙",
+        payload=f"donate_{stars}_{coins}",
+        provider_token="",  # Для звезд ВСЕГДА пустая строка
+        currency="XTR",     # Валюта - Звезды
+        prices=[LabeledPrice(label="Поддержка", amount=stars)]
+    )
+
+@bot.pre_checkout_query_handler(func=lambda query: True)
+def process_pre_checkout(pre_checkout_query):
+    bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
+
+@bot.message_handler(content_types=['successful_payment'])
+def process_successful_payment(message):
+    payment_info = message.successful_payment
+    payload = payment_info.invoice_payload
+    
+    if payload.startswith("donate_"):
+        parts = payload.split("_")
+        coins = int(parts[2])
+        
+        user_id = message.from_user.id
+        add_balance(user_id, coins)
+        
+        bot.send_message(
+            message.chat.id, 
+            f"🎉 **Спасибо за донат!**\nВам начислено {coins} Mon1Coin 🪙\nТекущий баланс: {get_balance(user_id)}", 
+            parse_mode="Markdown"
+        )
 
 # --- АДМИНКА ---
 @bot.message_handler(commands=['give'])
@@ -140,7 +190,29 @@ def send_help(message_or_call):
         bot.answer_callback_query(message_or_call.id)
     else:
         chat_id = message_or_call.chat.id
-    help_text = "📖 **ПОЛНАЯ ИНСТРУКЦИЯ MON1 CASINO**\n\n🪙 **Валюта:** Mon1Coin\n\n**👤 БАЗОВЫЕ КОМАНДЫ**\n`б` или `баланс` — баланс\n`профиль` — ваш ID\n\n**📜 ИСТОРИЯ**\n`лог` — последние числа\n`история` — переводы\n\n**💸 ПЕРЕВОДЫ**\n`перевод 100 @username`\n\n**🎁 ПРОМОКОДЫ**\nПросто напишите код.\n\n**🎮 БЫСТРЫЙ ЗАПУСК**\n`мины 1000` — сапер\n`краш 500` — краш\n\n**🎰 РУЛЕТКА**\nПишите ставки: `100 5, 200 10-15, 50 red`.\nЗатем `го`.\n\n**👑 АДМИН**\n`/createpromo КОД СУММА АКТИВАЦИИ`\n`/give ID СУММА`"
+    help_text = (
+        "📖 **ПОЛНАЯ ИНСТРУКЦИЯ MON1 CASINO**\n\n"
+        "🪙 **Валюта:** Mon1Coin\n\n"
+        "**👤 БАЗОВЫЕ КОМАНДЫ**\n"
+        "`б` или `баланс` — баланс\n"
+        "`профиль` — ваш ID\n\n"
+        "**📜 ИСТОРИЯ**\n"
+        "`лог` — последние 15 чисел рулетки\n"
+        "`история` — история ваших переводов\n\n"
+        "**💸 ПЕРЕВОДЫ**\n"
+        "`перевод 100 @username`\n\n"
+        "**🎁 ПРОМОКОДЫ**\n"
+        "Просто напишите код.\n\n"
+        "**⭐ ДОНАТ**\n"
+        "Нажмите кнопку ДОНАТ в меню, чтобы купить Mon1Coin за Telegram Stars.\n\n"
+        "**🎮 БЫСТРЫЙ ЗАПУСК**\n"
+        "`мины 1000` — сапер\n"
+        "`краш 500` — краш\n\n"
+        "**🎰 РУЛЕТКА**\n"
+        "`1000 на 1 на 5 на 7`\n"
+        "`500 на red`\n"
+        "`300 на 11-14`"
+    )
     bot.send_message(chat_id, help_text, parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data == "profile")
@@ -260,61 +332,11 @@ def roul_menu(call):
     bot.send_message(call.message.chat.id, 
         f"🎰 **РУЛЕТКА**\n\n"
         f"📜 Последние 15: {get_history_roulette()}\n\n"
-        "Делайте ставки через запятую:\n"
-        "`100 5, 200 10-15, 50 red`\n\n"
-        "Затем напишите **`го`**, чтобы крутить.\n"
-        "Отмена — `отмена`.", parse_mode="Markdown")
-
-def process_roulette_session(user_id, chat_id):
-    session = roulette_sessions[user_id]
-    win_num = random.randint(0, 36)
-    win_color = "green" if win_num == 0 else ("red" if 1 <= win_num <= 18 else "black")
-    sym = {"green": "🟢", "red": "🔴", "black": "⚫️"}[win_color]
-    
-    data["history"].append({"number": win_num, "color": win_color})
-    if len(data["history"]) > 100: data["history"] = data["history"][-100:]
-    save_data()
-    
-    total_win = 0
-    results = []
-
-    for bet_data in session["bets"]:
-        bet, target = bet_data
-        win = False
-        mult = 0
-        if "-" in target:
-            try:
-                start, end = map(int, target.split("-"))
-                if start <= win_num <= end:
-                    count = end - start + 1
-                    mult = max(1, math.floor(37 / count))
-                    win = True
-            except: pass
-        elif target.isdigit():
-            if int(target) == win_num: win, mult = True, 36
-        elif target in ["red", "к", "кр", "красное"]:
-            if win_color == "red": win, mult = True, 2
-        elif target in ["black", "ч", "чёрное", "черное"]:
-            if win_color == "black": win, mult = True, 2
-        elif target in ["green", "з", "зеро"]:
-            if win_color == "green": win, mult = True, 36
-            
-        if win:
-            reward = bet * mult
-            total_win += reward
-            results.append(f"✅ {bet} на {target} (x{mult}) -> +{reward} 🪙")
-        else:
-            results.append(f"❌ {bet} на {target} -> проигрыш")
-
-    add_balance(user_id, total_win)
-    res_text = "\n".join(results) if results else "Ставок не было."
-    
-    bot.send_message(chat_id, 
-        f"🎰 Барабан остановился: {sym} **{win_num}**\n\n"
-        f"{res_text}\n\n"
-        f"💰 Итого выигрыш: **+{total_win} 🪙**\n"
-        f"🪙 Ваш баланс: {get_balance(user_id)}\n\n"
-        f"📜 История: {get_history_roulette()}", parse_mode="Markdown")
+        "**Как ставить:**\n"
+        "`1000 на 1 на 5 на 7` (на числа)\n"
+        "`500 на red` (на цвет)\n"
+        "`300 на 11-14` (на диапазон)\n\n"
+        "Можно комбинировать: `100 на 5 на red`", parse_mode="Markdown")
 
 # --- ОБРАБОТЧИК ТЕКСТА ---
 @bot.message_handler(content_types=['text'])
@@ -330,11 +352,22 @@ def handle_all_text(message):
     if text in ["профиль", "п"]:
         bot.reply_to(message, f"👤 ID: {user_id}\n🪙 Баланс: {get_balance(user_id)} Mon1Coin")
         return
+
     if text == "лог":
         bot.reply_to(message, f"📜 **Последние 15 чисел:**\n{get_history_roulette()}", parse_mode="Markdown")
         return
     if text == "история":
-        bot.reply_to(message, "📜 История переводов пока не ведется в этой версии (в разработке).")
+        user_transfers = [t for t in data["transfers"] if str(t["sender_id"]) == str(user_id) or str(t["receiver_id"]) == str(user_id)]
+        if not user_transfers:
+            bot.reply_to(message, "📭 У вас пока нет истории переводов.")
+            return
+        hist_text = "📜 **Последние переводы:**\n\n"
+        for t in user_transfers[-10:]:
+            if str(t["sender_id"]) == str(user_id):
+                hist_text += f"📤 Вы перевели {t['amount']} 🪙 для @{t['receiver_name']}\n"
+            else:
+                hist_text += f"📥 Вам перевел {t['amount']} 🪙 от @{t['sender_name']}\n"
+        bot.reply_to(message, hist_text, parse_mode="Markdown")
         return
 
     if parts[0] in ["мины", "mines"] and len(parts) >= 2:
@@ -353,7 +386,6 @@ def handle_all_text(message):
             target = parts[2].replace("@", "")
             if amount <= 0 or get_balance(user_id) < amount: return bot.reply_to(message, "❌ Недостаточно средств!")
             
-            # Ищем игрока по юзернейму в JSON
             target_id = None
             for uid, pdata in data["players"].items():
                 if pdata.get("username", "").lower() == target.lower():
@@ -365,6 +397,16 @@ def handle_all_text(message):
             
             add_balance(user_id, -amount)
             add_balance(int(target_id), amount)
+            
+            data["transfers"].append({
+                "sender_id": user_id,
+                "sender_name": message.from_user.username or message.from_user.first_name,
+                "receiver_id": int(target_id),
+                "receiver_name": target,
+                "amount": amount,
+                "date": time.strftime("%Y-%m-%d")
+            })
+            save_data()
             
             bot.reply_to(message, f"✅ Переведено {amount} 🪙 пользователю @{target}!")
             try: bot.send_message(int(target_id), f"💸 Вам перевели {amount} 🪙!")
@@ -385,35 +427,81 @@ def handle_all_text(message):
             save_data()
             return bot.reply_to(message, f"🎉 Промокод активирован! +{promo['amount']} 🪙")
 
-    if text == "го":
-        if user_id in roulette_sessions and roulette_sessions[user_id]["bets"]:
-            process_roulette_session(user_id, message.chat.id)
-            del roulette_sessions[user_id]
-        else: bot.reply_to(message, "❌ У вас нет активных ставок.")
-        return
+    if " на " in text and len(parts) >= 3:
+        try:
+            bet = int(parts[0])
+            if bet <= 0: return
+            
+            targets = []
+            for i in range(2, len(parts)):
+                if parts[i] != "на":
+                    targets.append(parts[i])
+            
+            if not targets:
+                bot.reply_to(message, "❌ Вы не указали на что ставить.")
+                return
+                
+            total_cost = bet * len(targets)
+            if get_balance(user_id) < total_cost:
+                bot.reply_to(message, f"❌ Недостаточно средств! Нужно {total_cost} 🪙 (по {bet} на {len(targets)} целей).")
+                return
+                
+            add_balance(user_id, -total_cost)
+            
+            win_num = random.randint(0, 36)
+            win_color = "green" if win_num == 0 else ("red" if 1 <= win_num <= 18 else "black")
+            sym = {"green": "🟢", "red": "🔴", "black": "⚫️"}[win_color]
+            
+            data["history"].append({"number": win_num, "color": win_color})
+            if len(data["history"]) > 100: data["history"] = data["history"][-100:]
+            save_data()
+            
+            total_win = 0
+            results = []
+            
+            for target in targets:
+                win = False
+                mult = 0
+                
+                if "-" in target:
+                    try:
+                        start, end = map(int, target.split("-"))
+                        if start <= win_num <= end:
+                            count = end - start + 1
+                            mult = max(1, math.floor(37 / count))
+                            win = True
+                    except: pass
+                elif target.isdigit():
+                    if int(target) == win_num: win, mult = True, 36
+                elif target in ["red", "к", "кр", "красное"]:
+                    if win_color == "red": win, mult = True, 2
+                elif target in ["black", "ч", "чёрное", "черное"]:
+                    if win_color == "black": win, mult = True, 2
+                elif target in ["green", "з", "зеро"]:
+                    if win_color == "green": win, mult = True, 36
+                elif target in ["even", "чет"]:
+                    if win_num != 0 and win_num % 2 == 0: win, mult = True, 2
+                elif target in ["odd", "нечет"]:
+                    if win_num % 2 != 0: win, mult = True, 2
+                    
+                if win:
+                    reward = bet * mult
+                    total_win += reward
+                    results.append(f"✅ {bet} на {target} (x{mult}) -> +{reward} 🪙")
+                else:
+                    results.append(f"❌ {bet} на {target} -> проигрыш")
+                    
+            add_balance(user_id, total_win)
+            
+            bot.reply_to(message, 
+                f"🎰 Выпало: {sym} **{win_num}**\n\n"
+                + "\n".join(results) + 
+                f"\n\n💰 Итого: **{total_win} 🪙**\n"
+                f"🪙 Баланс: {get_balance(user_id)}", parse_mode="Markdown")
+            return
+        except ValueError:
+            bot.reply_to(message, "❌ Первое слово должно быть суммой ставки. Пример: `1000 на 5`")
+            return
 
-    if text == "отмена":
-        if user_id in roulette_sessions:
-            del roulette_sessions[user_id]
-            bot.reply_to(message, "✅ Сессия очищена.")
-        return
-
-    potential_bets = re.findall(r'(\d+)\s+([a-zA-Zа-яА-Я0-9\-]+)', text)
-    if potential_bets:
-        if user_id not in roulette_sessions: roulette_sessions[user_id] = {"bets": []}
-        added = []
-        for bet_str, target in potential_bets:
-            bet = int(bet_str)
-            if bet <= 0: continue
-            if get_balance(user_id) < bet: 
-                bot.reply_to(message, f"❌ Недостаточно средств для ставки {bet}!")
-                continue
-            add_balance(user_id, -bet)
-            roulette_sessions[user_id]["bets"].append((bet, target))
-            added.append(f"{bet} на {target}")
-        if added:
-            bot.reply_to(message, f"✅ Добавлено: {len(added)}\nНапишите **`го`**, чтобы крутить! (Баланс: {get_balance(user_id)})", parse_mode="Markdown")
-        return
-
-print("MON1 CASINO запущен (JSON Storage)!")
+print("MON1 CASINO запущен (с донатом)!")
 bot.infinity_polling(skip_pending=True)
