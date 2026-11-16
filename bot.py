@@ -39,7 +39,7 @@ def save_data():
 
 load_data()
 
-# --- ИСПРАВЛЕНИЕ ID ---
+# --- МИГРАЦИЯ ID ---
 def migrate_ids():
     global data
     changed = False
@@ -53,7 +53,6 @@ def migrate_ids():
             changed = True
     if changed:
         save_data()
-        print("✅ ID обновлены.")
 
 migrate_ids()
 bot = telebot.TeleBot(TOKEN)
@@ -68,6 +67,12 @@ def get_nick(user_id):
 
 def get_user_short_id(user_id):
     return data["players"].get(str(user_id), {}).get("short_id", "0")
+
+def get_user_by_short_id(short_id):
+    for uid, pdata in data["players"].items():
+        if str(pdata.get("short_id")) == str(short_id):
+            return uid
+    return None
 
 def add_balance(user_id, amount):
     uid = str(user_id)
@@ -118,7 +123,8 @@ def send_help_text(chat_id, msg_id=None):
         "`б` - баланс\n`профиль` - ваш ID\n`сменить ник ИМЯ`\n`бонус`\n\n"
         "**ИГРЫ**\n`мины 1000 3`\n`краш 1000`\n`1000 на 1 на 5`\n\n"
         "**КЛАНЫ**\nСоздать: 5000\nВступить: по ID\n\n"
-        "**МАГАЗИН**\nОружие/Броня: 2000"
+        "**МАГАЗИН**\nОружие/Броня: 2000\n\n"
+        "**АДМИН**\n`/give ИГРОВОЙ_ID СУММА`"
     )
     try:
         if msg_id: bot.edit_message_text(help_text, chat_id, msg_id, reply_markup=main_menu(), parse_mode="Markdown")
@@ -170,7 +176,7 @@ def top_callback(call):
     text = "🏆 **ТОП-10**\n\n" + "".join([f"{i}. {p.get('username','?')} — {p.get('balance',0)} 🪙\n" for i, (u, p) in enumerate(s, 1)])
     bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=main_menu(), parse_mode="Markdown")
 
-# --- КЛАНЫ (ИСПРАВЛЕНО) ---
+# --- КЛАНЫ ---
 @bot.callback_query_handler(func=lambda call: call.data == "clan_menu")
 def clan(call):
     bot.answer_callback_query(call.id); uid=str(call.from_user.id); p=data["players"].get(uid,{})
@@ -188,7 +194,6 @@ def c_clan(call):
     bot.answer_callback_query(call.id)
     if get_balance(call.from_user.id) < 5000:
         return bot.send_message(call.message.chat.id, "❌ Недостаточно средств! Нужно 5000.")
-    
     msg = bot.send_message(call.message.chat.id, "Введите имя клана (до 15 символов):")
     bot.register_next_step_handler(msg, save_clan)
 
@@ -197,18 +202,15 @@ def save_clan(m):
         uid = str(m.from_user.id); name = m.text.strip()[:15]
         if not name: return bot.reply_to(m, "❌ Имя не может быть пустым.")
         if get_balance(uid) < 5000: return bot.reply_to(m, "❌ У вас нет 5000.")
-        
         cid = str(random.randint(1000, 9999))
         while cid in data["clans"]: cid = str(random.randint(1000, 9999))
-        
         add_balance(uid, -5000)
         data["clans"][cid] = {"name": name, "owner_id": uid, "owner_name": get_nick(uid)}
         data["players"][uid]["clan_id"] = cid
         data["clan_bosses"][cid] = {"level": 1, "hp": 1000, "max_hp": 1000}
         save_data()
         bot.reply_to(m, f"✅ Клан **{name}** создан! ID: `{cid}`", parse_mode="Markdown", reply_markup=main_menu())
-    except Exception as e:
-        bot.reply_to(m, "❌ Ошибка при создании клана.")
+    except: bot.reply_to(m, "❌ Ошибка.")
 
 @bot.callback_query_handler(func=lambda call: call.data == "join_clan_prompt")
 def j_clan(call):
@@ -221,13 +223,12 @@ def do_join(m):
         uid = str(m.from_user.id); cid = m.text.strip()
         if cid not in data["clans"]: return bot.reply_to(m, "❌ Не найден.")
         if len([x for x in data["players"].values() if x.get("clan_id") == cid]) >= 15: return bot.reply_to(m, "❌ Полон (15).")
-        
         data["players"][uid]["clan_id"] = cid
         save_data()
         bot.reply_to(m, f"✅ Вступил в **{data['clans'][cid]['name']}**!", parse_mode="Markdown", reply_markup=main_menu())
     except: bot.reply_to(m, "❌ Ошибка.")
 
-# --- МАГАЗИН (ИСПРАВЛЕНО) ---
+# --- МАГАЗИН (ПОЛНОСТЬЮ ИСПРАВЛЕН) ---
 @bot.callback_query_handler(func=lambda call: call.data == "shop_menu")
 def shop(call):
     bot.answer_callback_query(call.id)
@@ -244,10 +245,17 @@ def buy(call):
         return bot.answer_callback_query(call.id, "❌ Мало денег!", show_alert=True)
     
     add_balance(uid, -2000)
-    if call.data == "buy_weapon": data["players"][uid]["weapon"] += 1
-    else: data["players"][uid]["armor"] += 1
+    if call.data == "buy_weapon":
+        data["players"][uid]["weapon"] += 1
+    else:
+        data["players"][uid]["armor"] += 1
     save_data()
-    shop(call) # Обновляем меню магазина
+    
+    # Обновляем сообщение магазина без вызова функции shop()
+    p = data["players"].get(uid, {})
+    kb = InlineKeyboardMarkup(row_width=1).add(InlineKeyboardButton("🗡 Оружие (2000)", callback_data="buy_weapon"), InlineKeyboardButton("🛡 Броня (2000)", callback_data="buy_armor"), InlineKeyboardButton("⬅️ Назад", callback_data="back"))
+    text = f"⚔️ **Магазин**\n🗡 Оружие: ур.{p.get('weapon', 1)}\n🛡 Броня: ур.{p.get('armor', 1)}\n🪙 Баланс: {get_balance(uid)}"
+    bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=kb, parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data == "attack_boss")
 def boss(call):
@@ -263,7 +271,7 @@ def boss(call):
         msg=f"⚔️ Урон: {dmg}\nБосс бьет: {cd}"
     save_data(); bot.send_message(call.message.chat.id, msg, parse_mode="Markdown", reply_markup=main_menu())
 
-# --- ИГРЫ (CRASH, MINES) ---
+# --- ИГРЫ ---
 @bot.callback_query_handler(func=lambda call: call.data == "game_crash")
 def crash(call):
     bot.answer_callback_query(call.id)
@@ -349,22 +357,44 @@ def success(m):
         c=int(p.split("_")[2]); add_balance(m.from_user.id,c)
         bot.send_message(m.chat.id,f"🎉 +{c} 🪙")
 
-# --- АДМИНКА И ТЕКСТ ---
+# --- АДМИНКА (ИСПРАВЛЕНА) ---
 @bot.message_handler(commands=['give'])
 def give(m):
     if m.from_user.id not in ADMIN_IDS: return
-    try: a=m.text.split()[1:]; t=str(int(a[0])); amt=int(a[1]); register_user_by_id(t); add_balance(t,amt); bot.reply_to(m,f"✅ +{amt} 🪙")
-    except: bot.reply_to(m,"❌ `/give ID СУММА`",parse_mode="Markdown")
+    try:
+        a = m.text.split()[1:]
+        short_id = a[0]
+        amt = int(a[1])
+        
+        # Ищем реальный ID по короткому ID
+        real_uid = get_user_by_short_id(short_id)
+        if not real_uid:
+            return bot.reply_to(m, f"❌ Игрок с ID `{short_id}` не найден.", parse_mode="Markdown")
+            
+        add_balance(real_uid, amt)
+        bot.reply_to(m, f"✅ Выдано {amt} 🪙 игроку с ID {short_id}.")
+    except: 
+        bot.reply_to(m, "❌ `/give ИГРОВОЙ_ID СУММА`", parse_mode="Markdown")
+
 @bot.message_handler(commands=['reset'])
 def rst(m):
     if m.from_user.id not in ADMIN_IDS: return
-    try: t=str(int(m.text.split()[1])); data["players"][t]["balance"]=0; save_data(); bot.reply_to(m,"♻️ Сброшено.")
-    except: bot.reply_to(m,"❌ `/reset ID`",parse_mode="Markdown")
+    try:
+        short_id = m.text.split()[1]
+        real_uid = get_user_by_short_id(short_id)
+        if real_uid:
+            data["players"][real_uid]["balance"] = 0
+            save_data()
+            bot.reply_to(m, f"♻️ Баланс игрока {short_id} сброшен.")
+        else: bot.reply_to(m, "❌ Игрок не найден.")
+    except: bot.reply_to(m,"❌ `/reset ИГРОВОЙ_ID`",parse_mode="Markdown")
+
 @bot.message_handler(commands=['wipe'])
 def wipe(m):
     if m.from_user.id not in ADMIN_IDS: return
     for u in data["players"]: data["players"][u]["balance"]=1000
     save_data(); bot.reply_to(m,"♻️ Все по 1000.")
+
 @bot.message_handler(commands=['createpromo'])
 def promo(m):
     if m.from_user.id not in ADMIN_IDS: return
