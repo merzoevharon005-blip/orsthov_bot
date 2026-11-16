@@ -98,7 +98,7 @@ def start(message):
     register_user(message.from_user)
     bot.send_message(message.chat.id, f"🎰 ДОБРО ПОЖАЛОВАТЬ В MON1 CASINO!\n\n🪙 Твой баланс: {get_balance(message.from_user.id)} Mon1Coin\n\nВыбирай игру:", reply_markup=main_menu())
 
-# --- КОЛЕСО ФОРТУНЫ (КНОПКА) ---
+# --- КОЛЕСО ФОРТУНЫ ---
 @bot.callback_query_handler(func=lambda call: call.data == "game_wheel")
 def wheel_menu(call):
     user_id = call.from_user.id
@@ -111,25 +111,26 @@ def wheel_menu(call):
     bot.edit_message_text(f"🎡 **КОЛЕСО ФОРТУНЫ**\n\nСтавка: 100 🪙\nТвой баланс: {get_balance(user_id)}\n\nНажми кнопку, чтобы испытать удачу!", 
                           call.message.chat.id, call.message.message_id, reply_markup=kb, parse_mode="Markdown")
 
-# --- ФУНКЦИЯ ЗАПУСКА КОЛЕСА ---
-def spin_wheel_logic(user_id, chat_id, bet, msg_id=None):
-    if get_balance(user_id) < bet:
-        if msg_id: return bot.edit_message_text("❌ Недостаточно средств!", chat_id, msg_id)
-        else: return bot.send_message(chat_id, "❌ Недостаточно средств!")
+@bot.callback_query_handler(func=lambda call: call.data == "spin_wheel")
+def spin_wheel(call):
+    user_id = call.from_user.id
+    if get_balance(user_id) < 100:
+        bot.answer_callback_query(call.id, "❌ Недостаточно средств!", show_alert=True)
+        return
     
-    add_balance(user_id, -bet)
+    add_balance(user_id, -100)
     
     sectors = [
-        (-0.5, 2, "💀 x0.5 (потеряли половину)"),     
-        (-1, 3, "💀 x0 (потеряли всё)"),   
-        (0, 10, "😐 x0 (возврат)"),        
-        (0.5, 15, "🪙 x0.5"),     
-        (1, 20, "🪙 x1"),   
-        (2, 20, "💰 x2"),   
-        (5, 15, "💰 x5"),   
-        (10, 10, "💎 x10"), 
-        (50, 4, "🔥 x50"),  
-        (-2, 1, "☠️ x2 (штраф)"),   
+        (-50, 2, "💀 -50"),     
+        (-100, 3, "💀 -100"),   
+        (0, 10, "😐 0"),        
+        (50, 15, "🪙 +50"),     
+        (100, 20, "🪙 +100"),   
+        (200, 20, "💰 +200"),   
+        (500, 15, "💰 +500"),   
+        (1000, 10, "💎 +1000"), 
+        (5000, 4, "🔥 +5000"),  
+        (-200, 1, "☠️ -200"),   
     ]
     
     total_weight = sum(weight for _, weight, _ in sectors)
@@ -138,35 +139,24 @@ def spin_wheel_logic(user_id, chat_id, bet, msg_id=None):
     
     result_text = ""
     multiplier = 0
-    for mult_val, weight, text in sectors:
+    for amount, weight, text in sectors:
         current_weight += weight
         if rand_val <= current_weight:
             result_text = text
-            multiplier = mult_val
+            multiplier = amount
             break
             
-    change = int(bet * multiplier)
-    
-    if change > 0:
-        add_balance(user_id, change)
-        msg = f"🎡 Колесо крутится...\n\n🎉 Выпало: **{result_text}**!\nВаш выигрыш: +{change} 🪙\nБаланс: {get_balance(user_id)}"
-    elif change < 0:
-        add_balance(user_id, change) 
-        msg = f"🎡 Колесо крутится...\n\n💀 Выпало: **{result_text}**!\nВы потеряли: {abs(change)} 🪙\nБаланс: {get_balance(user_id)}"
+    if multiplier > 0:
+        add_balance(user_id, multiplier)
+        msg = f"🎡 Колесо крутится...\n\n🎉 Выпало: **{result_text}**!\nВаш выигрыш: +{multiplier} 🪙\nБаланс: {get_balance(user_id)}"
+    elif multiplier < 0:
+        add_balance(user_id, multiplier)
+        msg = f"🎡 Колесо крутится...\n\n💀 Выпало: **{result_text}**!\nВы потеряли: {abs(multiplier)} 🪙\nБаланс: {get_balance(user_id)}"
     else:
-        add_balance(user_id, bet)
-        msg = f"🎡 Колесо крутится...\n\n😐 Выпало: **{result_text}**!\nСтавка возвращена.\nБаланс: {get_balance(user_id)}"
+        msg = f"🎡 Колесо крутится...\n\n😐 Выпало: **{result_text}**!\nВы ничего не выиграли и не потеряли.\nБаланс: {get_balance(user_id)}"
 
     kb = InlineKeyboardMarkup().add(InlineKeyboardButton("⬅️ В МЕНЮ", callback_data="back"))
-    
-    if msg_id:
-        bot.edit_message_text(msg, chat_id, msg_id, reply_markup=kb, parse_mode="Markdown")
-    else:
-        bot.send_message(chat_id, msg, reply_markup=kb, parse_mode="Markdown")
-
-@bot.callback_query_handler(func=lambda call: call.data == "spin_wheel")
-def spin_wheel(call):
-    spin_wheel_logic(call.from_user.id, call.message.chat.id, 100, call.message.message_id)
+    bot.edit_message_text(msg, call.message.chat.id, call.message.message_id, reply_markup=kb, parse_mode="Markdown")
 
 # --- ЕЖЕДНЕВНЫЙ БОНУС ---
 @bot.callback_query_handler(func=lambda call: call.data == "bonus_menu")
@@ -248,12 +238,13 @@ def send_help_text(chat_id):
         "Просто напишите код.\n\n"
         "**🎮 БЫСТРЫЙ ЗАПУСК**\n"
         "`мины 1000` — сапер\n"
-        "`краш 500` — краш\n"
-        "`колесо 100` — колесо фортуны\n\n"
+        "`краш 500` — краш\n\n"
         "**🎰 РУЛЕТКА**\n"
         "`1000 на 1 на 5 на 7`\n"
         "`500 на red`\n"
         "`300 на 11-14`\n\n"
+        "**🎡 КОЛЕСО**\n"
+        "Нажмите кнопку в меню. Ставка 100 🪙. Можно уйти в минус!\n\n"
         "**👑 АДМИН**\n"
         "`/createpromo КОД СУММА АКТИВАЦИИ`\n"
         "`/give ID СУММА`\n"
@@ -288,7 +279,7 @@ def send_top_text(chat_id, msg_id=None):
     else:
         bot.send_message(chat_id, text, parse_mode="Markdown")
 
-# --- CRASH ---
+# --- CRASH (ДО 100x) ---
 @bot.callback_query_handler(func=lambda call: call.data == "game_crash")
 def crash_menu(call):
     bot.answer_callback_query(call.id)
@@ -459,14 +450,6 @@ def handle_all_text(message):
     
     if text in ["б", "баланс", "профиль", "п", "лог", "топ", "top", "помощь", "help", "бонус", "bonus"]: return
 
-    if parts[0] in ["колесо", "wheel"] and len(parts) >= 2:
-        try:
-            bet = int(parts[1])
-            spin_wheel_logic(user_id, message.chat.id, bet)
-        except ValueError:
-            bot.reply_to(message, "❌ Формат: `колесо 100` (где 100 - сумма ставки)")
-        return
-
     if parts[0] in ["мины", "mines"] and len(parts) >= 2:
         try: start_mines_game(user_id, message.chat.id, int(parts[1]), int(parts[2]) if len(parts) > 2 else 3)
         except: bot.reply_to(message, "❌ Формат: `мины 1000 3`")
@@ -541,4 +524,9 @@ def handle_all_text(message):
                 if win: reward = bet * mult; total_win += reward; results.append(f"✅ {bet} на {target} (x{mult}) -> +{reward} 🪙")
                 else: results.append(f"❌ {bet} на {target} -> проигрыш")
             add_balance(user_id, total_win)
-            bot.reply_to(message, f"🎰 Выпало: {sym} **{win_num}**\n\n" + "\n".join(results) + f"\n\n💰
+            bot.reply_to(message, f"🎰 Выпало: {sym} **{win_num}**\n\n" + "\n".join(results) + f"\n\n💰 Итого: **{total_win} 🪙**\n🪙 Баланс: {get_balance(user_id)}", parse_mode="Markdown")
+            return
+        except ValueError: return bot.reply_to(message, "❌ Первое слово должно быть суммой. Пример: `1000 на 5`")
+
+print("MON1 CASINO (Fortune Wheel) запущен!")
+bot.infinity_polling(skip_pending=True)
