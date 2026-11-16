@@ -20,7 +20,6 @@ DATA_DIR = pathlib.Path("/app/data")
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DATA_FILE = DATA_DIR / "database.json"
 
-# База данных в памяти
 data = {
     "players": {},
     "promos": {},
@@ -46,7 +45,6 @@ def save_data():
 load_data()
 bot = telebot.TeleBot(TOKEN)
 
-# Хранилища для игр
 mines_games = {}
 crash_games = {}
 
@@ -56,6 +54,12 @@ def get_balance(user_id):
     if uid not in data["players"]:
         return 0
     return data["players"][uid].get("balance", 0)
+
+def get_nick(user_id):
+    uid = str(user_id)
+    if uid not in data["players"]:
+        return "Player"
+    return data["players"][uid].get("username", "Player")
 
 def add_balance(user_id, amount):
     uid = str(user_id)
@@ -109,18 +113,19 @@ def start(message):
         reply_markup=main_menu()
     )
 
-# --- КНОПКА ПРОФИЛЬ ---
+# --- ПРОФИЛЬ ---
 @bot.callback_query_handler(func=lambda call: call.data == "profile")
 def profile_callback(call):
     bot.answer_callback_query(call.id)
     text = (
         f"👤 **Твой профиль**\n\n"
         f"🆔 ID: `{call.from_user.id}`\n"
+        f"📛 Ник: {get_nick(call.from_user.id)}\n"
         f"🪙 Баланс: {get_balance(call.from_user.id)} Mon1Coin"
     )
     bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=main_menu(), parse_mode="Markdown")
 
-# --- КНОПКА БОНУС ---
+# --- БОНУС ---
 @bot.callback_query_handler(func=lambda call: call.data == "bonus_menu")
 def bonus_callback(call):
     bot.answer_callback_query(call.id)
@@ -152,7 +157,7 @@ def process_bonus(user_id, chat_id, msg_id=None):
     else:
         bot.send_message(chat_id, msg, reply_markup=main_menu(), parse_mode="Markdown")
 
-# --- КНОПКА ПОМОЩЬ ---
+# --- ПОМОЩЬ ---
 @bot.callback_query_handler(func=lambda call: call.data == "help_menu")
 def help_callback(call):
     bot.answer_callback_query(call.id)
@@ -164,7 +169,8 @@ def send_help_text(chat_id, msg_id=None):
         "🪙 **Валюта:** Mon1Coin\n\n"
         "**👤 БАЗОВЫЕ КОМАНДЫ**\n"
         "`б` или `баланс` — баланс\n"
-        "`профиль` — ваш ID\n\n"
+        "`профиль` — ваш ID\n"
+        "`сменить ник ИМЯ` — изменить ник\n\n"
         "**🎁 БОНУС**\n"
         "`бонус` — получить от 1000 до 2000 🪙 раз в 24 часа\n\n"
         "**🎮 БЫСТРЫЙ ЗАПУСК**\n"
@@ -185,7 +191,7 @@ def send_help_text(chat_id, msg_id=None):
     else:
         bot.send_message(chat_id, help_text, reply_markup=main_menu(), parse_mode="Markdown")
 
-# --- КНОПКА ТОП ---
+# --- ТОП ---
 @bot.callback_query_handler(func=lambda call: call.data == "top_menu")
 def top_callback(call):
     bot.answer_callback_query(call.id)
@@ -197,14 +203,14 @@ def send_top_text(chat_id, msg_id=None):
     for i, (uid, pdata) in enumerate(sorted_players[:10], 1):
         name = pdata.get("username", "Unknown")
         bal = pdata.get("balance", 0)
-        text += f"{i}. @{name} — {bal} 🪙\n"
+        text += f"{i}. {name} — {bal} 🪙\n"
         
     if msg_id:
         bot.edit_message_text(text, chat_id, msg_id, reply_markup=main_menu(), parse_mode="Markdown")
     else:
         bot.send_message(chat_id, text, reply_markup=main_menu(), parse_mode="Markdown")
 
-# --- ИГРА CRASH ---
+# --- CRASH ---
 @bot.callback_query_handler(func=lambda call: call.data == "game_crash")
 def crash_menu(call):
     bot.answer_callback_query(call.id)
@@ -257,7 +263,7 @@ def crash_cashout(call):
     add_balance(call.from_user.id, reward)
     bot.edit_message_text(f"🏆 Ты забрал на x{g['current']:.2f}!\n+{reward} 🪙", call.message.chat.id, call.message.message_id, reply_markup=main_menu())
 
-# --- ИГРА MINES ---
+# --- MINES ---
 MULTIPLIERS = {2: 1.10, 3: 1.15, 5: 1.25, 9: 1.45}
 
 @bot.callback_query_handler(func=lambda call: call.data == "game_mines")
@@ -324,7 +330,7 @@ def mines_play(call):
         g["opened"].add(idx)
         bot.edit_message_text(mines_text(user_id), call.message.chat.id, call.message.message_id, reply_markup=mines_kb(user_id), parse_mode="Markdown")
 
-# --- РУЛЕТКА ---
+# --- РУЛЕТКА (МЕНЮ) ---
 @bot.callback_query_handler(func=lambda call: call.data == "game_roulette")
 def roul_menu(call):
     bot.answer_callback_query(call.id)
@@ -423,15 +429,16 @@ def create_promo(message):
 def admin_wipe(message):
     if message.from_user.id not in ADMIN_IDS:
         return bot.reply_to(message, "❌ У вас нет прав.")
+    
     count = 0
     for uid, pdata in data["players"].items():
-        if pdata.get("balance", 0) > 1000:
-            pdata["balance"] = 1000
-            count += 1
+        pdata["balance"] = 1000
+        count += 1
+        
     save_data()
     bot.reply_to(message, f"♻️ **Экономика очищена!**\nБалансы {count} игроков сброшены до 1000.", parse_mode="Markdown")
 
-# --- ТЕКСТОВЫЕ КОМАНДЫ (ОБЩИЙ ОБРАБОТЧИК) ---
+# --- ТЕКСТОВЫЕ КОМАНДЫ ---
 @bot.message_handler(content_types=['text'])
 def handle_all_text(message):
     if message.text.startswith('/'):
@@ -441,11 +448,10 @@ def handle_all_text(message):
     parts = text.split()
     user_id = message.from_user.id
     
-    # Базовые запросы
     if text in ["б", "баланс"]:
         return bot.reply_to(message, f"🪙 Твой баланс: {get_balance(user_id)} Mon1Coin")
     if text in ["профиль", "п"]:
-        return bot.reply_to(message, f"👤 ID: `{user_id}`\n🪙 Баланс: {get_balance(user_id)} Mon1Coin", parse_mode="Markdown")
+        return bot.reply_to(message, f"👤 ID: `{user_id}`\n📛 Ник: {get_nick(user_id)}\n🪙 Баланс: {get_balance(user_id)} Mon1Coin", parse_mode="Markdown")
     if text in ["помощь", "help"]:
         return send_help_text(message.chat.id)
     if text in ["топ", "top"]:
@@ -455,7 +461,14 @@ def handle_all_text(message):
     if text == "лог":
         return bot.reply_to(message, f"📜 **Последние 15 чисел:**\n{get_history_roulette()}", parse_mode="Markdown")
 
-    # Быстрый запуск игр
+    # СМЕНА НИКА
+    if parts[0] in ["сменить", "ник"] and len(parts) >= 2:
+        new_nick = " ".join(parts[1:])[:15] # Берем все после команды, лимит 15 символов
+        data["players"][str(user_id)]["username"] = new_nick
+        save_data()
+        return bot.reply_to(message, f"✅ Твой новый ник: **{new_nick}**", parse_mode="Markdown")
+
+    # БЫСТРЫЙ ЗАПУСК ИГР
     if parts[0] in ["мины", "mines"] and len(parts) >= 2:
         try:
             bombs = int(parts[2]) if len(parts) > 2 else 3
@@ -471,7 +484,7 @@ def handle_all_text(message):
             bot.reply_to(message, "❌ Формат: `краш 1000`", parse_mode="Markdown")
         return
 
-    # Переводы
+    # ПЕРЕВОДЫ
     if parts[0] in ["перевод", "перевести", "пей"] and len(parts) >= 3:
         try:
             amount = int(parts[1])
@@ -486,7 +499,7 @@ def handle_all_text(message):
                     break
             
             if not target_id:
-                return bot.reply_to(message, "❌ Получатель не найден.")
+                return bot.reply_to(message, "❌ Получатель не найден (ищите по нику).")
             if target_id == str(user_id):
                 return bot.reply_to(message, "❌ Нельзя перевести себе!")
             
@@ -494,14 +507,14 @@ def handle_all_text(message):
             add_balance(int(target_id), amount)
             data["transfers"].append({
                 "sender_id": user_id, 
-                "sender_name": message.from_user.username or message.from_user.first_name, 
+                "sender_name": get_nick(user_id), 
                 "receiver_id": int(target_id), 
                 "receiver_name": target, 
                 "amount": amount, 
                 "date": time.strftime("%Y-%m-%d")
             })
             save_data()
-            bot.reply_to(message, f"✅ Переведено {amount} 🪙 пользователю @{target}!")
+            bot.reply_to(message, f"✅ Переведено {amount} 🪙 пользователю {target}!")
             try:
                 bot.send_message(int(target_id), f"💸 Вам перевели {amount} 🪙!")
             except:
@@ -510,7 +523,7 @@ def handle_all_text(message):
         except:
             return bot.reply_to(message, "❌ Неверный формат перевода.")
 
-    # Промокоды
+    # ПРОМОКОДЫ
     if len(parts) == 1 and len(text) > 3 and text.isalnum():
         code = text.upper()
         if code in data["promos"]:
@@ -526,7 +539,7 @@ def handle_all_text(message):
             save_data()
             return bot.reply_to(message, f"🎉 Промокод активирован! +{promo['amount']} 🪙")
 
-    # Рулетка (Логика "на")
+    # РУЛЕТКА
     if " на " in text and len(parts) >= 3:
         try:
             bet = int(parts[0])
