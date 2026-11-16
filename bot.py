@@ -83,6 +83,7 @@ def main_menu():
         InlineKeyboardButton("💣 MINES", callback_data="game_mines"),
         InlineKeyboardButton("🚀 CRASH", callback_data="game_crash"),
         InlineKeyboardButton("🎰 РУЛЕТКА", callback_data="game_roulette"),
+        InlineKeyboardButton("🎡 КОЛЕСО", callback_data="game_wheel"), # Новая кнопка
         InlineKeyboardButton("👤 ПРОФИЛЬ", callback_data="profile"),
         InlineKeyboardButton("🎁 БОНУС", callback_data="bonus_menu"),
         InlineKeyboardButton("❓ ПОМОЩЬ", callback_data="help_menu"),
@@ -96,6 +97,71 @@ def main_menu():
 def start(message):
     register_user(message.from_user)
     bot.send_message(message.chat.id, f"🎰 ДОБРО ПОЖАЛОВАТЬ В MON1 CASINO!\n\n🪙 Твой баланс: {get_balance(message.from_user.id)} Mon1Coin\n\nВыбирай игру:", reply_markup=main_menu())
+
+# --- КОЛЕСО ФОРТУНЫ ---
+@bot.callback_query_handler(func=lambda call: call.data == "game_wheel")
+def wheel_menu(call):
+    user_id = call.from_user.id
+    if get_balance(user_id) < 100:
+        bot.answer_callback_query(call.id, "❌ Для игры нужно минимум 100 Mon1Coin!", show_alert=True)
+        return
+    
+    bot.answer_callback_query(call.id)
+    kb = InlineKeyboardMarkup().add(InlineKeyboardButton("🎡 КРУТИТЬ (100 🪙)", callback_data="spin_wheel"))
+    bot.edit_message_text(f"🎡 **КОЛЕСО ФОРТУНЫ**\n\nСтавка: 100 🪙\nТвой баланс: {get_balance(user_id)}\n\nНажми кнопку, чтобы испытать удачу!", 
+                          call.message.chat.id, call.message.message_id, reply_markup=kb, parse_mode="Markdown")
+
+@bot.callback_query_handler(func=lambda call: call.data == "spin_wheel")
+def spin_wheel(call):
+    user_id = call.from_user.id
+    if get_balance(user_id) < 100:
+        bot.answer_callback_query(call.id, "❌ Недостаточно средств!", show_alert=True)
+        return
+    
+    # Списываем ставку
+    add_balance(user_id, -100)
+    
+    # Сектора колеса (шанс выпадения, множитель)
+    # Отрицательные значения - штраф, положительные - выигрыш
+    sectors = [
+        (-50, 2, "💀 -50"),     # Штраф 50
+        (-100, 3, "💀 -100"),   # Штраф 100
+        (0, 10, "😐 0"),        # Ничего
+        (50, 15, "🪙 +50"),     # Выигрыш 50
+        (100, 20, "🪙 +100"),   # Выигрыш 100
+        (200, 20, "💰 +200"),   # Выигрыш 200
+        (500, 15, "💰 +500"),   # Выигрыш 500
+        (1000, 10, "💎 +1000"), # Выигрыш 1000
+        (5000, 4, "🔥 +5000"),  # Джекпот
+        (-200, 1, "☠️ -200"),   # Редкий штраф
+    ]
+    
+    # Взвешенный рандом
+    total_weight = sum(weight for _, weight, _ in sectors)
+    rand_val = random.randint(1, total_weight)
+    current_weight = 0
+    
+    result_text = ""
+    multiplier = 0
+    for amount, weight, text in sectors:
+        current_weight += weight
+        if rand_val <= current_weight:
+            result_text = text
+            multiplier = amount
+            break
+            
+    if multiplier > 0:
+        add_balance(user_id, multiplier)
+        msg = f"🎡 Колесо крутится...\n\n🎉 Выпало: **{result_text}**!\nВаш выигрыш: +{multiplier} 🪙\nБаланс: {get_balance(user_id)}"
+    elif multiplier < 0:
+        # Уходим в минус (баланс может стать отрицательным)
+        add_balance(user_id, multiplier)
+        msg = f"🎡 Колесо крутится...\n\n💀 Выпало: **{result_text}**!\nВы потеряли: {abs(multiplier)} 🪙\nБаланс: {get_balance(user_id)}"
+    else:
+        msg = f"🎡 Колесо крутится...\n\n😐 Выпало: **{result_text}**!\nВы ничего не выиграли и не потеряли.\nБаланс: {get_balance(user_id)}"
+
+    kb = InlineKeyboardMarkup().add(InlineKeyboardButton("⬅️ В МЕНЮ", callback_data="back"))
+    bot.edit_message_text(msg, call.message.chat.id, call.message.message_id, reply_markup=kb, parse_mode="Markdown")
 
 # --- ЕЖЕДНЕВНЫЙ БОНУС ---
 @bot.callback_query_handler(func=lambda call: call.data == "bonus_menu")
@@ -134,7 +200,7 @@ def daily_bonus(event):
 
     bot.send_message(chat_id, f"🎁 **ЕЖЕДНЕВНЫЙ БОНУС!**\n\nВы получили: **+{bonus_amount} Mon1Coin** 🪙\nТекущий баланс: {get_balance(user_id)}", parse_mode="Markdown")
 
-# --- НОВАЯ КОМАНДА: ВАЙП БАЛАНСОВ ---
+# --- ВАЙП БАЛАНСОВ ---
 @bot.message_handler(commands=['wipe'])
 def admin_wipe(message):
     if message.from_user.id not in ADMIN_IDS:
@@ -182,6 +248,8 @@ def send_help_text(chat_id):
         "`1000 на 1 на 5 на 7`\n"
         "`500 на red`\n"
         "`300 на 11-14`\n\n"
+        "**🎡 КОЛЕСО**\n"
+        "Нажмите кнопку в меню. Ставка 100 🪙. Можно уйти в минус!\n\n"
         "**👑 АДМИН**\n"
         "`/createpromo КОД СУММА АКТИВАЦИИ`\n"
         "`/give ID СУММА`\n"
@@ -465,5 +533,4 @@ def handle_all_text(message):
             return
         except ValueError: return bot.reply_to(message, "❌ Первое слово должно быть суммой. Пример: `1000 на 5`")
 
-print("MON1 CASINO (Wipe Edition) запущен!")
-bot.infinity_polling(skip_pending=True)
+print("MON1 CASINO (Fortune
