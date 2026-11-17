@@ -40,6 +40,7 @@ def migrate_data():
         if "title" not in pdata: pdata["title"] = "Нет"; changed = True
         if "quests" not in pdata: pdata["quests"] = {}; changed = True
         if "donate_status" not in pdata: pdata["donate_status"] = "Нет"; changed = True
+        if "last_bonus" not in pdata: pdata["last_bonus"] = 0; changed = True
     if "roulette_bets" not in data: data["roulette_bets"] = {}
     if "promos" not in data: data["promos"] = {}
     if "activations" not in data: data["activations"] = []
@@ -47,7 +48,10 @@ def migrate_data():
 
 migrate_data()
 bot = telebot.TeleBot(TOKEN)
-MULT = {5: 1.25, 9: 1.45}
+
+# Коэффициенты для мин (3, 5, 9 бомб)
+MULT = {3: 1.15, 5: 1.25, 9: 1.45}
+
 BIZ_TERRITORY_COST = {0: 10000, 1: 50000, 2: 250000, 3: 1000000, 4: 5000000, 5: 25000000}
 BIZ_BUILDING_COST = {1: 20000, 2: 100000, 3: 500000, 4: 2000000, 5: 10000000}
 
@@ -96,7 +100,7 @@ def register_user_by_id(uid):
 @bot.message_handler(commands=["start"])
 def start(message):
     register_user(message.from_user)
-    bot.send_message(message.chat.id, f"🎰 **MON1 CASINO RPG**\n\n🪙 Баланс: {get_balance(message.from_user.id)}\n\nИгры: `слот 1000`, `мины 1000 5`, `краш 1000`, `1000 5 12` (рулетка)\nКланы: `мой клан`\nИнфо: `помощь`", parse_mode="Markdown")
+    bot.send_message(message.chat.id, f"🎰 **MON1 CASINO RPG**\n\n🪙 Баланс: {get_balance(message.from_user.id)}\n\nИгры: `слот 1000`, `мины 1000 5`, `краш 1000`, `джокер 1000`, `1000 5 12` (рулетка)\nБонус: `бонус`\nКланы: `мой клан`\nИнфо: `помощь`", parse_mode="Markdown")
 
 @bot.message_handler(commands=['help'])
 @bot.message_handler(func=lambda m: m.text and m.text.lower().strip() in ['помощь', 'help'])
@@ -109,12 +113,29 @@ def help_command(message):
 @bot.callback_query_handler(func=lambda call: call.data.startswith("help_"))
 def help_callbacks(call):
     section = call.data.split("_")[1]
-    if section == "games": text = "🎮 **Игры:**\n• `слот 1000`\n• `мины 1000 5`\n• `краш 1000`\n• `1000 5 красное` (рулетка, запуск `го`)"
-    elif section == "eco": text = "💼 **Экономика:**\n• `б` — баланс\n• `профиль` — профиль\n• `мой ид` — узнать ID\n• `топ` — топ-10\n• `банк` — банк\n• `мой бизнес` — бизнес\n• `квесты` — задания\n• `перевод 1000 ник`\n• `промо КОД`\n• `сменить ник НОВЫЙ_НИК`"
+    if section == "games": text = "🎮 **Игры:**\n• `слот 1000`\n• `мины 1000 5` (3, 5 или 9 бомб)\n• `краш 1000`\n• `джокер 1000` (лесенка)\n• `1000 5 красное` (рулетка, запуск `го`)"
+    elif section == "eco": text = "💼 **Экономика:**\n• `б` — баланс\n• `бонус` — ежедневный бонус\n• `профиль` — профиль\n• `мой ид` — узнать ID\n• `топ` — топ-10\n• `банк` — банк\n• `мой бизнес` — бизнес\n• `квесты` — задания\n• `перевод 1000 ник`\n• `промо КОД`\n• `сменить ник НОВЫЙ_НИК`"
     elif section == "clans": text = "🛡 **Кланы:**\n• `создать клан ИМЯ` (10000)\n• `вступить клан ID`\n• `мой клан`\n• `выйти из клана`\n• `топ кланов`\n• `клан казна положить/снять СУММА`"
     elif section == "donate": text = "💎 **Донат:**\n• `донат` — пополнить\n• `донат статус` — купить статус\n• `мой статус` — узнать статус"
     bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=call.message.reply_markup, parse_mode="Markdown")
     bot.answer_callback_query(call.id)
+
+# ==================== БОНУС ====================
+
+@bot.message_handler(func=lambda m: m.text and m.text.lower().strip() == 'бонус')
+def daily_bonus(message):
+    uid = str(message.from_user.id)
+    if uid not in data["players"]: register_user(message.from_user)
+    p = data["players"][uid]
+    now = int(time.time())
+    last = p.get("last_bonus", 0)
+    if now - last < 86400:
+        left = 86400 - (now - last)
+        return bot.reply_to(message, f"⏳ Следующий бонус через **{left // 3600} ч. {(left % 3600) // 60} мин.**", parse_mode="Markdown")
+    reward = random.randint(1000, 3000)
+    add_balance(uid, reward)
+    data["players"][uid]["last_bonus"] = now; save_data()
+    bot.reply_to(message, f"🎁 Вы получили ежедневный бонус: **{reward}** 🪙!\nПриходите завтра!", parse_mode="Markdown")
 
 # ==================== ДОНАТ И СТАТУСЫ ====================
 
@@ -215,15 +236,19 @@ def balance_command(message):
     if uid not in data["players"]: register_user(message.from_user)
     bot.reply_to(message, f"💰 Ваш баланс: **{get_balance(uid)}** 🪙", parse_mode="Markdown")
 
-@bot.message_handler(func=lambda m: m.text and m.text.lower().strip() in ['мой ид', 'мой id'])
-def my_id_command(message):
+@bot.message_handler(func=lambda m: m.text and m.text.lower().strip() in ['узнать ид', 'мой ид', 'мой id'])
+def get_id_command(message):
     uid = str(message.from_user.id)
     target_uid = uid
+    
+    # Если это реплай на другое сообщение
     if message.reply_to_message:
         target_uid = str(message.reply_to_message.from_user.id)
+        # Проверяем, есть ли права (Админ или Ультра)
         caller_status = data["players"].get(uid, {}).get("donate_status", "Нет")
         if uid not in [str(a) for a in ADMIN_IDS] and caller_status != "Ultra":
             return bot.reply_to(message, "❌ Смотреть чужой ID могут только админы и Ultra.")
+            
     if target_uid not in data["players"]: register_user_by_id(target_uid)
     sid = get_user_short_id(target_uid)
     bot.reply_to(message, f"🆔 ID игрока: `{sid}`", parse_mode="Markdown")
@@ -277,47 +302,45 @@ def admin_panel(message):
     if message.from_user.id not in ADMIN_IDS: return
     kb = InlineKeyboardMarkup(row_width=2)
     kb.add(InlineKeyboardButton("📊 Статистика", callback_data="adm_stats"), InlineKeyboardButton("💰 Выдать деньги", callback_data="adm_give"))
-    kb.add(InlineKeyboardButton("🗑 Удалить игрока", callback_data="adm_reset"), InlineKeyboardButton("🎁 Создать промо", callback_data="adm_promo"))
-    kb.add(InlineKeyboardButton("❌ Удалить промо", callback_data="adm_delpromo"), InlineKeyboardButton("📢 Рассылка", callback_data="adm_broadcast"))
+    kb.add(InlineKeyboardButton("👑 Выдать статус", callback_data="adm_setstatus"), InlineKeyboardButton("🗑 Удалить игрока", callback_data="adm_reset"))
+    kb.add(InlineKeyboardButton("🎁 Создать промо", callback_data="adm_promo"), InlineKeyboardButton("❌ Удалить промо", callback_data="adm_delpromo"))
+    kb.add(InlineKeyboardButton("📢 Рассылка", callback_data="adm_broadcast"))
     bot.reply_to(message, "⚙️ **АДМИН-ПАНЕЛЬ**\nВыберите действие:", reply_markup=kb, parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("adm_"))
 def admin_callbacks(call):
     if call.from_user.id not in ADMIN_IDS: return bot.answer_callback_query(call.id, "❌ Нет прав.")
     act = call.data.split("_")[1]
-    
     if act == "stats":
         total_players = len(data["players"])
         total_money = sum(p.get("balance", 0) for p in data["players"].values())
         total_clans = len(data["clans"])
         text = f"📊 **СТАТИСТИКА**\n\n👥 Игроков: {total_players}\n💰 Общий баланс: {total_money} 🪙\n🛡 Кланов: {total_clans}"
         bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("⬅️ Назад", callback_data="adm_back")), parse_mode="Markdown")
-        
     elif act == "give":
         msg = bot.send_message(call.message.chat.id, "Введите `ID СУММА` (например: `3 5000`):")
         bot.register_next_step_handler(msg, admin_give_step)
         bot.answer_callback_query(call.id)
-        
+    elif act == "setstatus":
+        msg = bot.send_message(call.message.chat.id, "Введите `ID СТАТУС` (например: `3 Ultra`).\nДоступные статусы: `VIP`, `Premium`, `Ultra`, `Нет`:")
+        bot.register_next_step_handler(msg, admin_setstatus_step)
+        bot.answer_callback_query(call.id)
     elif act == "reset":
         msg = bot.send_message(call.message.chat.id, "Введите `ID` игрока для удаления (например: `3`):")
         bot.register_next_step_handler(msg, admin_reset_step)
         bot.answer_callback_query(call.id)
-        
     elif act == "promo":
         msg = bot.send_message(call.message.chat.id, "Введите `КОД СУММА` (например: `NEWYEAR 1000`):")
         bot.register_next_step_handler(msg, admin_promo_step)
         bot.answer_callback_query(call.id)
-        
     elif act == "delpromo":
         msg = bot.send_message(call.message.chat.id, "Введите `КОД` промокода для удаления:")
         bot.register_next_step_handler(msg, admin_delpromo_step)
         bot.answer_callback_query(call.id)
-        
     elif act == "broadcast":
         msg = bot.send_message(call.message.chat.id, "Введите текст для рассылки всем игрокам:")
         bot.register_next_step_handler(msg, admin_broadcast_step)
         bot.answer_callback_query(call.id)
-        
     elif act == "back":
         admin_panel(call.message)
 
@@ -330,6 +353,20 @@ def admin_give_step(message):
         add_balance(target_uid, amount)
         bot.reply_to(message, f"✅ Выдано {amount} 🪙 игроку с ID {sid}.")
     except: bot.reply_to(message, "❌ Ошибка формата.")
+
+def admin_setstatus_step(message):
+    if message.from_user.id not in ADMIN_IDS: return
+    try:
+        sid, status = message.text.split()
+        status = status.capitalize()
+        if status not in ["VIP", "Premium", "Ultra", "Нет"]:
+            return bot.reply_to(message, "❌ Неверный статус. Доступно: VIP, Premium, Ultra, Нет.")
+        target_uid = get_user_by_short_id(sid)
+        if not target_uid: return bot.reply_to(message, "❌ Игрок не найден.")
+        data["players"][target_uid]["donate_status"] = status
+        save_data()
+        bot.reply_to(message, f"✅ Игроку с ID {sid} выдан статус **{status}**.", parse_mode="Markdown")
+    except: bot.reply_to(message, "❌ Ошибка формата. Введите `ID Статус`")
 
 def admin_reset_step(message):
     if message.from_user.id not in ADMIN_IDS: return
@@ -619,7 +656,7 @@ def start_mines(message):
     try:
         p = message.text.split(); bet = int(p[1]); bmb = int(p[2]) if len(p) > 2 else 5
         if bet <= 0 or get_balance(uid) < bet: return bot.reply_to(message, "❌ Мало.")
-        if bmb not in MULT: return bot.reply_to(message, "❌ Мины: 5 или 9.")
+        if bmb not in MULT: return bot.reply_to(message, "❌ Мины: 3, 5 или 9.")
         add_balance(uid, -bet); gid = str(random.randint(10000, 99999))
         data["active_games"][gid] = {"type": "mines", "user": uid, "bet": bet, "mines": random.sample(range(25), bmb), "opened": [], "bombs": bmb}; save_data()
         bot.reply_to(message, f"💣 **МИНЫ** #{gid}\nСтавка: {bet} 🪙\nМин: {bmb}", reply_markup=mines_kb(gid), parse_mode="Markdown")
@@ -693,6 +730,65 @@ def crash_out(call):
     add_balance(uid, rw); del data["active_games"][gid]; save_data()
     bot.edit_message_text(f"🏆 **Забрано на x{g['current']:.2f}!** +{rw} 🪙", call.message.chat.id, call.message.message_id, reply_markup=None, parse_mode="Markdown")
 
+@bot.message_handler(func=lambda m: m.text and m.text.lower().startswith("джокер"))
+def start_joker(message):
+    uid = str(message.from_user.id)
+    try:
+        bet = int(message.text.split()[1])
+        if bet <= 0 or get_balance(uid) < bet: return bot.reply_to(message, "❌ Недостаточно средств.")
+        add_balance(uid, -bet); gid = str(random.randint(10000, 99999))
+        data["active_games"][gid] = {"type": "joker", "user": uid, "bet": bet, "step": 0, "mult": 1.0, "active": True}
+        save_data()
+        show_joker_menu(message.chat.id, gid, uid, None)
+    except: bot.reply_to(message, "❌ `джокер 1000`")
+
+def show_joker_menu(cid, gid, uid, msg_id):
+    g = data["active_games"].get(gid)
+    if not g: return
+    mult = g["mult"]
+    text = f"🃏 **ДЖОКЕР**\nСтавка: {g['bet']} 🪙\nШаг: {g['step']} / 12\nТекущий множитель: x{mult:.2f}\nЗабрать: {math.floor(g['bet'] * mult)} 🪙\n\nВыберите ячейку:"
+    kb = InlineKeyboardMarkup(row_width=3)
+    kb.add(InlineKeyboardButton("🎴 1", callback_data=f"j_{gid}_0"), InlineKeyboardButton("🎴 2", callback_data=f"j_{gid}_1"), InlineKeyboardButton("🎴 3", callback_data=f"j_{gid}_2"))
+    if g["step"] > 0: kb.row(InlineKeyboardButton("💰 ЗАБРАТЬ", callback_data=f"jcash_{gid}"))
+    if msg_id: bot.edit_message_text(text, cid, msg_id, reply_markup=kb, parse_mode="Markdown")
+    else: bot.send_message(cid, text, reply_markup=kb, parse_mode="Markdown")
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("j_"))
+def joker_play(call):
+    _, gid, choice = call.data.split("_"); uid = str(call.from_user.id); g = data["active_games"].get(gid)
+    if not g or g["user"] != uid or not g["active"]: return bot.answer_callback_query(call.id, "❌ Ошибка.")
+    if g["step"] >= 12: return bot.answer_callback_query(call.id, "❌ Максимум!")
+    
+    lose_idx = random.randint(0, 2)
+    if int(choice) == lose_idx:
+        g["active"] = False
+        bot.edit_message_text(f"🃏 **ПРОИГРЫШ!**\nВы попали в проигрышную ячейку.\nПотеряно: {g['bet']} 🪙", call.message.chat.id, call.message.message_id, reply_markup=None, parse_mode="Markdown")
+        del data["active_games"][gid]; save_data(); return
+    
+    g["step"] += 1
+    # СБАЛАНСИРОВАННЫЕ КОЭФФИЦИЕНТЫ (от x1.2 до x5.0)
+    mult_table = [1.2, 1.4, 1.6, 1.9, 2.2, 2.5, 2.9, 3.3, 3.8, 4.2, 4.6, 5.0]
+    g["mult"] = mult_table[g["step"] - 1]
+    save_data()
+    
+    if g["step"] >= 12:
+        rw = math.floor(g["bet"] * g["mult"])
+        add_balance(uid, rw); g["active"] = False
+        bot.edit_message_text(f"🏆 **ДЖОКЕР ПРОЙДЕН!**\nМаксимальный множитель x{g['mult']:.2f}!\nВыигрыш: {rw} 🪙", call.message.chat.id, call.message.message_id, reply_markup=None, parse_mode="Markdown")
+        del data["active_games"][gid]; save_data(); return
+    
+    bot.answer_callback_query(call.id, f"✅ Шаг {g['step']}! Множитель x{g['mult']:.2f}")
+    show_joker_menu(call.message.chat.id, gid, uid, call.message.message_id)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("jcash_"))
+def joker_cash(call):
+    gid = call.data.split("_")[1]; uid = str(call.from_user.id); g = data["active_games"].get(gid)
+    if not g or g["user"] != uid or not g["active"]: return
+    rw = math.floor(g["bet"] * g["mult"])
+    add_balance(uid, rw); g["active"] = False
+    bot.edit_message_text(f"🏆 **Забрано!** +{rw} 🪙", call.message.chat.id, call.message.message_id, reply_markup=None, parse_mode="Markdown")
+    del data["active_games"][gid]; save_data()
+
 @bot.message_handler(func=lambda m: m.text and len(m.text.split()) >= 2 and m.text.split()[0].isdigit())
 def roulette_bet(message):
     uid = str(message.from_user.id); parts = message.text.split()
@@ -760,6 +856,7 @@ def roulette_go(message):
     bot.reply_to(message, f"🎰 Выпало: {sym} **{win_num}**\n\n{res_text}\n\n💰 Общий выигрыш: {total_win} 🪙", parse_mode="Markdown")
 
 # ==================== БИЗНЕС, БАНК, КВЕСТЫ ====================
+# (Весь оставшийся код бизнеса, банка и квестов остается без изменений, он уже вставлен)
 
 @bot.message_handler(func=lambda m: m.text and m.text.lower().strip() == "мой бизнес")
 def my_business(message):
