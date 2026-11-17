@@ -1,5 +1,5 @@
 import os, random, math, time, telebot, threading, json, pathlib
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, LabeledPrice
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 TOKEN = os.getenv("BOT_TOKEN")
 if not TOKEN: raise ValueError("Не задан BOT_TOKEN")
@@ -8,9 +8,10 @@ ADMIN_IDS = [8211650013, 6940877915]
 DATA_DIR = pathlib.Path("/app/data"); DATA_DIR.mkdir(parents=True, exist_ok=True)
 DATA_FILE = DATA_DIR / "database.json"
 
+# Изначальная структура базы
 data = {"players": {}, "promos": {}, "activations": [], "history": [], "clans": {}, "next_id": 1, "active_games": {}, "roulette_bets": {}}
 
-# Добавляем блокировку для безопасного сохранения файла
+# Блокировка для безопасного сохранения
 db_lock = threading.Lock()
 
 def load_data():
@@ -23,7 +24,6 @@ def load_data():
         except Exception as e: print(f"⚠️ Ошибка загрузки: {e}")
 
 def save_data():
-    # Используем блокировку, чтобы потоки не ломали файл
     with db_lock:
         with open(DATA_FILE, "w", encoding="utf-8") as f: 
             json.dump(data, f, ensure_ascii=False, indent=4)
@@ -42,8 +42,9 @@ def migrate_data():
         if "biz_territory" not in pdata: pdata["biz_territory"] = 0; pdata["biz_building"] = 1; pdata["biz_tax"] = 0; pdata["biz_last_collect"] = int(time.time()); changed = True
         if "title" not in pdata: pdata["title"] = "Нет"; changed = True
         if "quests" not in pdata: pdata["quests"] = {}; changed = True
-        if "btc" in pdata: del pdata["btc"]; changed = True
     if "roulette_bets" not in data: data["roulette_bets"] = {}
+    if "promos" not in data: data["promos"] = {}
+    if "activations" not in data: data["activations"] = []
     if changed: save_data()
 
 migrate_data()
@@ -51,11 +52,9 @@ bot = telebot.TeleBot(TOKEN)
 MULT = {5: 1.25, 9: 1.45}
 BIZ_TERRITORY_COST = {0: 10000, 1: 50000, 2: 250000, 3: 1000000, 4: 5000000, 5: 25000000}
 BIZ_BUILDING_COST = {1: 20000, 2: 100000, 3: 500000, 4: 2000000, 5: 10000000}
-TITLES = {"👑 Король": 1000000, "💎 Олигарх": 500000, "🔥 Везунчик": 250000, "🐺 Волк": 100000, "🌟 Звезда": 50000, "😎 Крутой": 20000}
 
 def get_balance(uid): return data["players"].get(str(uid), {}).get("balance", 0)
 def get_nick(uid): return data["players"].get(str(uid), {}).get("username", "Player")
-def get_title(uid): return data["players"].get(str(uid), {}).get("title", "Нет")
 def get_user_short_id(uid): return data["players"].get(str(uid), {}).get("short_id", "0")
 
 def get_user_by_short_id(sid):
@@ -92,7 +91,7 @@ def start(message):
     register_user(message.from_user)
     bot.send_message(message.chat.id, f"🎰 **MON1 CASINO RPG**\n\n🪙 Баланс: {get_balance(message.from_user.id)}\n\nИгры: `слот 1000`, `мины 1000 5`, `краш 1000`, `1000 5 12` (рулетка)\nКланы: `мой клан`\nИнфо: `помощь`", parse_mode="Markdown")
 
-# ==================== НОВЫЕ КОМАНДЫ (ПОМОЩЬ, БАЛАНС, ПРОФИЛЬ) ====================
+# ==================== БАЗОВЫЕ КОМАНДЫ ====================
 
 @bot.message_handler(commands=['help'])
 @bot.message_handler(func=lambda m: m.text and m.text.lower().strip() in ['помощь', 'help'])
@@ -110,9 +109,9 @@ def help_command(message):
         "• `топ` — топ-10 игроков\n"
         "• `банк` — банковский счет и депозит\n"
         "• `мой бизнес` — управление бизнесом\n"
-        "• `магазин` — покупка титулов\n"
         "• `квесты` — ежедневные задания\n"
-        "• `перевод 1000 ник` — перевод денег\n\n"
+        "• `перевод 1000 ник` — перевод денег\n"
+        "• `промо КОД` — активировать промокод\n\n"
         "🛡 **Кланы:**\n"
         "• `создать клан ИМЯ` — создать клан (10000 🪙)\n"
         "• `вступить клан ID` — вступить в клан\n"
@@ -126,7 +125,8 @@ def balance_command(message):
     uid = str(message.from_user.id)
     if uid not in data["players"]: register_user(message.from_user)
     balance = data["players"][uid].get("balance", 0)
-    bot.reply_to(message, f"💰 Ваш баланс: **{balance:,}** 🪙", parse_mode="Markdown")
+    # Убрал запятую, теперь просто число
+    bot.reply_to(message, f"💰 Ваш баланс: **{balance}** 🪙", parse_mode="Markdown")
 
 @bot.message_handler(func=lambda m: m.text and m.text.lower().strip() == 'профиль')
 def profile_command(message):
@@ -139,119 +139,267 @@ def profile_command(message):
         clan = data["clans"].get(str(p["clan_id"]))
         if clan: clan_name = clan.get("name", "Нет")
         
+    # Убрал запятые в выводе балансов
     text = (
         f"👤 **ПРОФИЛЬ ИГРОКА**\n\n"
         f"🆔 ID: `{p.get('short_id', '?')}`\n"
         f"👤 Ник: {p.get('username', '?')}\n"
-        f"🏆 Титул: {p.get('title', 'Нет')}\n"
-        f"💰 Баланс: {p.get('balance', 0):,} 🪙\n"
-        f"🏦 Банк: {p.get('bank', 0):,} 🪙\n"
-        f"💎 Депозит: {p.get('deposit', 0):,} 🪙\n"
+        f"💰 Баланс: {p.get('balance', 0)} 🪙\n"
+        f"🏦 Банк: {p.get('bank', 0)} 🪙\n"
+        f"💎 Депозит: {p.get('deposit', 0)} 🪙\n"
         f"🛡 Клан: {clan_name}\n"
         f"🏢 Бизнес (территория): {p.get('biz_territory', 0)} м²"
     )
     bot.reply_to(message, text, parse_mode="Markdown")
 
-# ==================== СОЗДАНИЕ И ВСТУПЛЕНИЕ В КЛАН ====================
+# ==================== КВЕСТЫ (ИСПРАВЛЕННЫЕ) ====================
+
+@bot.message_handler(func=lambda m: m.text and m.text.lower().strip() == "квесты")
+def quests_menu(message):
+    uid = str(message.from_user.id); p = data["players"].get(uid, {}); now = int(time.time())
+    # Обновляем квесты раз в 24 часа. Убран биткоин, награда 500.
+    if "quest_date" not in p or now - p.get("quest_date", 0) >= 86400:
+        data["players"][uid]["quests"] = {
+            "Сделать ставку в слот": {"done": False, "reward": 500, "claimed": False}, 
+            "Сыграть в краш": {"done": False, "reward": 500, "claimed": False}, 
+            "Открыть депозит": {"done": False, "reward": 500, "claimed": False}
+        }
+        data["players"][uid]["quest_date"] = now; save_data()
+        
+    q = p.get("quests", {}); text = "📜 **Ежедневные квесты**\n\n"
+    for name, info in q.items(): 
+        status = "✅" if info.get("done") else "❌"
+        text += f"{status} {name} (+{info['reward']} 🪙)\n"
+    text += "\nНапишите `забрать квест` после выполнения."
+    bot.reply_to(message, text, parse_mode="Markdown")
+
+@bot.message_handler(func=lambda m: m.text and m.text.lower().strip() == "забрать квест")
+def claim_quests(message):
+    uid = str(message.from_user.id)
+    q = data["players"].get(uid, {}).get("quests", {})
+    total = 0
+    for name, info in q.items():
+        # Выдаем награду ТОЛЬКО если квест выполнен и еще не забран
+        if info.get("done") and not info.get("claimed", False): 
+            total += info["reward"]
+            info["claimed"] = True
+            
+    if total > 0: 
+        add_balance(uid, total)
+        save_data()
+        bot.reply_to(message, f"🎉 Вы получили {total} 🪙 за квесты!", parse_mode="Markdown")
+    else: 
+        bot.reply_to(message, "❌ Нет выполненных или незабранных квестов.")
+
+def complete_quest(uid, quest_name):
+    uid = str(uid); p = data["players"].get(uid, {})
+    if "quests" in p and quest_name in p["quests"]:
+        if not p["quests"][quest_name]["done"]: 
+            p["quests"][quest_name]["done"] = True
+            save_data()
+
+# ==================== АДМИН-КОМАНДЫ ====================
+
+def is_admin(message):
+    return message.from_user.id in ADMIN_IDS
+
+@bot.message_handler(commands=['wipe'])
+def wipe_command(message):
+    if not is_admin(message): return
+    global data
+    data = {"players": {}, "promos": {}, "activations": [], "history": [], "clans": {}, "next_id": 1, "active_games": {}, "roulette_bets": {}}
+    save_data()
+    bot.reply_to(message, "💥 **База данных полностью очищена!** Все игроки, бизнесы и кланы удалены.", parse_mode="Markdown")
+
+@bot.message_handler(commands=['give'])
+def give_command(message):
+    if not is_admin(message): return
+    try:
+        parts = message.text.split()
+        target_sid = parts[1]
+        amount = int(parts[2])
+        
+        target_uid = get_user_by_short_id(target_sid)
+        if not target_uid:
+            return bot.reply_to(message, f"❌ Игрок с ID {target_sid} не найден.")
+            
+        add_balance(target_uid, amount)
+        bot.reply_to(message, f"✅ Выдано {amount} 🪙 игроку {get_nick(target_uid)} (ID: {target_sid}).", parse_mode="Markdown")
+    except:
+        bot.reply_to(message, "❌ Использование: `/give ID СУММА` (например: `/give 3 5000`)", parse_mode="Markdown")
+
+@bot.message_handler(commands=['reset'])
+def reset_user_command(message):
+    if not is_admin(message): return
+    try:
+        target_sid = message.text.split()[1]
+        target_uid = get_user_by_short_id(target_sid)
+        
+        if not target_uid:
+            return bot.reply_to(message, f"❌ Игрок с ID {target_sid} не найден.")
+            
+        # Удаляем игрока из базы полностью (при следующем /start создастся новый)
+        if target_uid in data["players"]:
+            # Если он был в клане, удаляем его из клана
+            cid = data["players"][target_uid].get("clan_id")
+            if cid and cid in data["clans"]:
+                if data["players"][target_uid].get("role") == "создатель":
+                    del data["clans"][cid] # Удаляем клан, если он был создателем
+                else:
+                    pass # В кланах хранятся только ID, при вступлении они обновятся
+            
+            del data["players"][target_uid]
+            save_data()
+            bot.reply_to(message, f"✅ Игрок с ID {target_sid} полностью сброшен (удален из базы).", parse_mode="Markdown")
+        else:
+            bot.reply_to(message, "❌ Игрок не найден в базе.")
+    except:
+        bot.reply_to(message, "❌ Использование: `/reset ID` (например: `/reset 3`)", parse_mode="Markdown")
+
+@bot.message_handler(commands=['get_profile'])
+def get_profile_command(message):
+    if not is_admin(message): return
+    try:
+        target_sid = message.text.split()[1]
+        target_uid = get_user_by_short_id(target_sid)
+        if not target_uid:
+            return bot.reply_to(message, f"❌ Игрок с ID {target_sid} не найден.")
+            
+        p = data["players"][target_uid]
+        clan_name = "Нет"
+        if p.get("clan_id"):
+            clan = data["clans"].get(str(p["clan_id"]))
+            if clan: clan_name = clan.get("name", "Нет")
+            
+        text = (
+            f"👤 **ПРОФИЛЬ ИГРОКА (Админ)**\n\n"
+            f"🆔 ID: `{p.get('short_id', '?')}`\n"
+            f"👤 Ник: {p.get('username', '?')}\n"
+            f"💰 Баланс: {p.get('balance', 0)} 🪙\n"
+            f"🏦 Банк: {p.get('bank', 0)} 🪙\n"
+            f"💎 Депозит: {p.get('deposit', 0)} 🪙\n"
+            f"🛡 Клан: {clan_name} (Роль: {p.get('role', 'none')})\n"
+            f"🏢 Бизнес: {p.get('biz_territory', 0)} м² (Здание ур. {p.get('biz_building', 1)})"
+        )
+        bot.reply_to(message, text, parse_mode="Markdown")
+    except:
+        bot.reply_to(message, "❌ Использование: `/get_profile ID` (например: `/get_profile 3`)", parse_mode="Markdown")
+
+# ==================== ПРОМОКОДЫ ====================
+
+@bot.message_handler(commands=['createpromo'])
+def create_promo(message):
+    if not is_admin(message): return
+    try:
+        parts = message.text.split()
+        code = parts[1].upper()
+        amount = int(parts[2])
+        
+        if code in data["promos"]:
+            return bot.reply_to(message, "❌ Такой промокод уже существует.")
+            
+        data["promos"][code] = amount
+        save_data()
+        bot.reply_to(message, f"✅ Промокод **{code}** на {amount} 🪙 создан!", parse_mode="Markdown")
+    except:
+        bot.reply_to(message, "❌ Использование: `/createpromo КОД СУММА` (например: `/createpromo NEWYEAR 1000`)", parse_mode="Markdown")
+
+@bot.message_handler(commands=['deletepromo'])
+def delete_promo(message):
+    if not is_admin(message): return
+    try:
+        code = message.text.split()[1].upper()
+        if code in data["promos"]:
+            del data["promos"][code]
+            save_data()
+            bot.reply_to(message, f"✅ Промокод **{code}** удален.", parse_mode="Markdown")
+        else:
+            bot.reply_to(message, "❌ Такого промокода нет.")
+    except:
+        bot.reply_to(message, "❌ Использование: `/deletepromo КОД` (например: `/deletepromo NEWYEAR`)", parse_mode="Markdown")
+
+@bot.message_handler(func=lambda m: m.text and m.text.lower().startswith("промо"))
+def activate_promo(message):
+    uid = str(message.from_user.id)
+    try:
+        code = message.text.split()[1].upper()
+        
+        if code not in data["promos"]:
+            return bot.reply_to(message, "❌ Неверный или несуществующий промокод.")
+            
+        # Проверка, активировал ли уже этот игрок этот код
+        activation_key = f"{uid}_{code}"
+        if activation_key in data["activations"]:
+            return bot.reply_to(message, "❌ Вы уже активировали этот промокод.")
+            
+        amount = data["promos"][code]
+        add_balance(uid, amount)
+        data["activations"].append(activation_key)
+        save_data()
+        
+        bot.reply_to(message, f"🎉 Промокод **{code}** активирован! Вы получили {amount} 🪙.", parse_mode="Markdown")
+    except:
+        bot.reply_to(message, "❌ Использование: `промо КОД`")
+
+# ==================== КЛАНЫ ====================
 
 @bot.message_handler(func=lambda m: m.text and m.text.lower().startswith("создать клан"))
 def create_clan(message):
     uid = str(message.from_user.id)
-    if uid not in data["players"]:
-        register_user(message.from_user)
-        
+    if uid not in data["players"]: register_user(message.from_user)
     p = data["players"][uid]
     
-    if p.get("clan_id"):
-        return bot.reply_to(message, "❌ Вы уже состоите в клане. Сначала выйдите из текущего.")
-        
+    if p.get("clan_id"): return bot.reply_to(message, "❌ Вы уже состоите в клане.")
     cost = 10000
-    if get_balance(uid) < cost:
-        return bot.reply_to(message, f"❌ Недостаточно средств. Для создания клана нужно {cost:,} 🪙.")
+    if get_balance(uid) < cost: return bot.reply_to(message, f"❌ Недостаточно средств. Нужно {cost} 🪙.")
         
     try:
         clan_name = message.text[12:].strip()
-        if len(clan_name) < 3 or len(clan_name) > 20:
-            return bot.reply_to(message, "❌ Название клана должно быть от 3 до 20 символов.")
-    except:
-        return bot.reply_to(message, "❌ `создать клан НАЗВАНИЕ`")
+        if len(clan_name) < 3 or len(clan_name) > 20: return bot.reply_to(message, "❌ Название от 3 до 20 символов.")
+    except: return bot.reply_to(message, "❌ `создать клан НАЗВАНИЕ`")
         
     for c in data["clans"].values():
-        if c.get("name", "").lower() == clan_name.lower():
-            return bot.reply_to(message, "❌ Клан с таким названием уже существует.")
+        if c.get("name", "").lower() == clan_name.lower(): return bot.reply_to(message, "❌ Клан с таким названием уже есть.")
 
     add_balance(uid, -cost)
-    
     clan_id = str(len(data["clans"]) + 1)
-    while clan_id in data["clans"]:
-        clan_id = str(int(clan_id) + 1)
+    while clan_id in data["clans"]: clan_id = str(int(clan_id) + 1)
         
-    data["clans"][clan_id] = {
-        "name": clan_name,
-        "owner_id": uid,
-        "owner_name": p.get("username", "?"),
-        "treasury": 0,
-        "members": [uid]
-    }
-    
+    data["clans"][clan_id] = {"name": clan_name, "owner_id": uid, "owner_name": p.get("username", "?"), "treasury": 0, "members": [uid]}
     p["clan_id"] = clan_id
     p["role"] = "создатель"
-    
     save_data()
-    bot.reply_to(message, f"✅ Клан **{clan_name}** успешно создан!\n🆔 ID клана: `{clan_id}`\n👑 Вы — создатель.\n💰 Списано: {cost:,} 🪙", parse_mode="Markdown")
+    bot.reply_to(message, f"✅ Клан **{clan_name}** создан!\n🆔 ID клана: `{clan_id}`\n👑 Вы — создатель.\n💰 Списано: {cost} 🪙", parse_mode="Markdown")
 
 @bot.message_handler(func=lambda m: m.text and m.text.lower().startswith("вступить клан"))
 def join_clan(message):
     uid = str(message.from_user.id)
-    if uid not in data["players"]:
-        register_user(message.from_user)
-        
+    if uid not in data["players"]: register_user(message.from_user)
     p = data["players"][uid]
     
-    if p.get("clan_id"):
-        return bot.reply_to(message, "❌ Вы уже состоите в клане.")
-        
-    try:
-        clan_id = message.text.split()[2]
-    except:
-        return bot.reply_to(message, "❌ `вступить клан ID` (например: вступить клан 1)")
+    if p.get("clan_id"): return bot.reply_to(message, "❌ Вы уже в клане.")
+    try: clan_id = message.text.split()[2]
+    except: return bot.reply_to(message, "❌ `вступить клан ID`")
         
     clan = data["clans"].get(clan_id)
-    if not clan:
-        return bot.reply_to(message, "❌ Клан с таким ID не найден.")
+    if not clan: return bot.reply_to(message, "❌ Клан не найден.")
         
     members = [m for m in data["players"].values() if m.get("clan_id") == clan_id]
-    if len(members) >= 15:
-        return bot.reply_to(message, "❌ Клан переполнен (максимум 15 человек).")
+    if len(members) >= 15: return bot.reply_to(message, "❌ Клан переполнен (макс 15).")
         
     p["clan_id"] = clan_id
     p["role"] = "игрок"
     save_data()
-    
-    bot.reply_to(message, f"✅ Вы успешно вступили в клан **{clan['name']}**!\nВаша роль: **игрок**.", parse_mode="Markdown")
-    
-    try:
-        owner_id = clan.get("owner_id")
-        if owner_id:
-            bot.send_message(owner_id, f"👤 Новый участник в вашем клане **{clan['name']}**!\nИгрок: {p.get('username', '?')} (ID: `{p.get('short_id')}`)", parse_mode="Markdown")
-    except: pass
+    bot.reply_to(message, f"✅ Вы вступили в клан **{clan['name']}**!", parse_mode="Markdown")
 
 @bot.message_handler(func=lambda m: m.text and m.text.lower().strip() == "выйти из клана")
 def leave_clan(message):
     uid = str(message.from_user.id)
     p = data["players"].get(uid, {})
-    if not p.get("clan_id"):
-        return bot.reply_to(message, "❌ Вы не в клане.")
-        
-    if p.get("role") == "создатель":
-        return bot.reply_to(message, "❌ Создатель не может выйти. Передайте права или удалите клан.")
-        
-    p["clan_id"] = None
-    p["role"] = "none"
-    save_data()
+    if not p.get("clan_id"): return bot.reply_to(message, "❌ Вы не в клане.")
+    if p.get("role") == "создатель": return bot.reply_to(message, "❌ Создатель не может выйти.")
+    p["clan_id"] = None; p["role"] = "none"; save_data()
     bot.reply_to(message, "✅ Вы вышли из клана.")
-
-# ===================================================================
 
 @bot.message_handler(func=lambda m: m.text and m.text.lower().strip() == "мой клан")
 def my_clan_info(message):
@@ -262,14 +410,7 @@ def my_clan_info(message):
     if not clan: return bot.reply_to(message, "❌ Клан удален.")
     
     members = [m for m in data["players"].values() if m.get("clan_id") == cid]
-    text = (
-        f"🛡 **Клан: {clan['name']}**\n"
-        f"🆔 ID: `{cid}`\n"
-        f"👑 Создатель: {clan['owner_name']}\n"
-        f"👥 Участники: {len(members)}/15\n"
-        f"💰 Казна: {clan.get('treasury', 0)} 🪙\n\n"
-        f"Ваша роль: **{p.get('role', 'игрок').upper()}**"
-    )
+    text = f"🛡 **Клан: {clan['name']}**\n🆔 ID: `{cid}`\n👑 Создатель: {clan['owner_name']}\n👥 Участники: {len(members)}/15\n💰 Казна: {clan.get('treasury', 0)} 🪙\n\nВаша роль: **{p.get('role', 'игрок').upper()}**"
     kb = InlineKeyboardMarkup().add(InlineKeyboardButton("👥 Участники", callback_data=f"clan_members_{cid}"))
     bot.reply_to(message, text, reply_markup=kb, parse_mode="Markdown")
 
@@ -277,27 +418,19 @@ def my_clan_info(message):
 def clan_members(call):
     cid = call.data.split("_")[2]; clan = data["clans"].get(cid)
     if not clan: return bot.answer_callback_query(call.id, "❌ Клан не найден.")
-    
     members = [(m.get('username', '?'), m.get('short_id', '?'), m.get('role', 'игрок')) for m in data["players"].values() if m.get("clan_id") == cid]
     text = f"👥 **Участники клана {clan['name']}**\n\n"
-    for name, sid, role in members:
-        text += f"• {name} (ID: `{sid}`) — {role}\n"
+    for name, sid, role in members: text += f"• {name} (ID: `{sid}`) — {role}\n"
     bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("⬅️ Назад", callback_data=f"clan_back_{cid}")), parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("clan_back_"))
 def clan_back(call):
-    uid = str(call.from_user.id)
-    p = data["players"].get(uid, {})
-    cid = str(p.get("clan_id"))
+    uid = str(call.from_user.id); p = data["players"].get(uid, {}); cid = str(p.get("clan_id"))
     if not cid: return
     clan = data["clans"].get(cid)
     if not clan: return
     members = [m for m in data["players"].values() if m.get("clan_id") == cid]
-    text = (
-        f"🛡 **Клан: {clan['name']}**\n🆔 ID: `{cid}`\n👑 Создатель: {clan['owner_name']}\n"
-        f"👥 Участники: {len(members)}/15\n💰 Казна: {clan.get('treasury', 0)} 🪙\n\n"
-        f"Ваша роль: **{p.get('role', 'игрок').upper()}**"
-    )
+    text = f"🛡 **Клан: {clan['name']}**\n🆔 ID: `{cid}`\n👑 Создатель: {clan['owner_name']}\n👥 Участники: {len(members)}/15\n💰 Казна: {clan.get('treasury', 0)} 🪙\n\nВаша роль: **{p.get('role', 'игрок').upper()}**"
     kb = InlineKeyboardMarkup().add(InlineKeyboardButton("👥 Участники", callback_data=f"clan_members_{cid}"))
     bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=kb, parse_mode="Markdown")
 
@@ -315,18 +448,12 @@ def clan_kick(message):
     try:
         target_sid = message.text.split()[2]
         target_uid = get_user_by_short_id(target_sid)
-        if not target_uid: return bot.reply_to(message, "❌ Игрок с таким ID не найден.")
-        
+        if not target_uid: return bot.reply_to(message, "❌ Игрок не найден.")
         cid = data["players"][uid].get("clan_id")
-        if data["players"].get(target_uid, {}).get("clan_id") != cid:
-            return bot.reply_to(message, "❌ Этот игрок не в вашем клане.")
-        if data["players"].get(target_uid, {}).get("role") == "создатель":
-            return bot.reply_to(message, "❌ Нельзя исключить создателя.")
-            
-        data["players"][target_uid]["clan_id"] = None
-        data["players"][target_uid]["role"] = "none"
-        save_data()
-        bot.reply_to(message, f"✅ Игрок с ID `{target_sid}` исключен из клана.", parse_mode="Markdown")
+        if data["players"].get(target_uid, {}).get("clan_id") != cid: return bot.reply_to(message, "❌ Не в вашем клане.")
+        if data["players"].get(target_uid, {}).get("role") == "создатель": return bot.reply_to(message, "❌ Нельзя исключить создателя.")
+        data["players"][target_uid]["clan_id"] = None; data["players"][target_uid]["role"] = "none"; save_data()
+        bot.reply_to(message, f"✅ Игрок `{target_sid}` исключен.")
     except: bot.reply_to(message, "❌ `клан исключить ID`", parse_mode="Markdown")
 
 @bot.message_handler(func=lambda m: m.text and m.text.lower().startswith("клан повысить"))
@@ -336,66 +463,19 @@ def clan_promote(message):
     try:
         target_sid = message.text.split()[2]
         target_uid = get_user_by_short_id(target_sid)
-        if not target_uid: return bot.reply_to(message, "❌ Игрок с таким ID не найден.")
-        
+        if not target_uid: return bot.reply_to(message, "❌ Игрок не найден.")
         cid = data["players"][uid].get("clan_id")
-        if data["players"].get(target_uid, {}).get("clan_id") != cid:
-            return bot.reply_to(message, "❌ Этот игрок не в вашем клане.")
-            
+        if data["players"].get(target_uid, {}).get("clan_id") != cid: return bot.reply_to(message, "❌ Не в вашем клане.")
         current_role = data["players"][target_uid].get("role", "игрок")
-        if current_role == "создатель":
-            return bot.reply_to(message, "❌ Это создатель.")
-        elif current_role == "заместитель":
-            return bot.reply_to(message, "❌ Он уже заместитель.")
-        elif current_role == "модер":
-            data["players"][target_uid]["role"] = "заместитель"
-            new_role = "заместитель"
-        else:
-            data["players"][target_uid]["role"] = "модер"
-            new_role = "модер"
-            
+        if current_role == "создатель": return bot.reply_to(message, "❌ Это создатель.")
+        elif current_role == "заместитель": return bot.reply_to(message, "❌ Уже заместитель.")
+        elif current_role == "модер": data["players"][target_uid]["role"] = "заместитель"; new_role = "заместитель"
+        else: data["players"][target_uid]["role"] = "модер"; new_role = "модер"
         save_data()
-        bot.reply_to(message, f"✅ Игрок с ID `{target_sid}` повышен до **{new_role}**.", parse_mode="Markdown")
+        bot.reply_to(message, f"✅ Игрок `{target_sid}` повышен до **{new_role}**.", parse_mode="Markdown")
     except: bot.reply_to(message, "❌ `клан повысить ID`", parse_mode="Markdown")
 
-@bot.message_handler(func=lambda m: m.text and m.text.lower().strip() == "магазин")
-def shop_menu(message):
-    kb = InlineKeyboardMarkup(row_width=1)
-    for t, p in TITLES.items(): kb.add(InlineKeyboardButton(f"{t} ({p:,} 🪙)", callback_data=f"buy_title_{t}"))
-    bot.send_message(message.chat.id, "🛒 **Магазин титулов**\nВыберите титул для покупки:", reply_markup=kb, parse_mode="Markdown")
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("buy_title_"))
-def buy_title(call):
-    uid = str(call.from_user.id); title = call.data.split("_", 2)[2]; price = TITLES.get(title)
-    if not price: return bot.answer_callback_query(call.id, "❌ Ошибка.")
-    if get_balance(uid) < price: return bot.answer_callback_query(call.id, "❌ Недостаточно средств!", show_alert=True)
-    add_balance(uid, -price); data["players"][uid]["title"] = title; save_data()
-    bot.answer_callback_query(call.id, f"✅ Вы купили титул {title}!")
-    bot.send_message(call.message.chat.id, f"🎉 Вы купили титул **{title}** за {price:,} 🪙", parse_mode="Markdown")
-
-@bot.message_handler(func=lambda m: m.text and m.text.lower().strip() == "квесты")
-def quests_menu(message):
-    uid = str(message.from_user.id); p = data["players"].get(uid, {}); now = int(time.time())
-    if "quest_date" not in p or now - p.get("quest_date", 0) >= 86400:
-        data["players"][uid]["quests"] = {"Сделать ставку в слот": {"done": False, "reward": 5000}, "Сыграть в краш": {"done": False, "reward": 5000}, "Купить биткоин": {"done": False, "reward": 5000}, "Открыть депозит": {"done": False, "reward": 10000}}
-        data["players"][uid]["quest_date"] = now; save_data()
-    q = p.get("quests", {}); text = "📜 **Ежедневные квесты**\n\n"
-    for name, info in q.items(): text += f"{'✅' if info['done'] else '❌'} {name} (+{info['reward']:,} 🪙)\n"
-    text += "\nНапишите `забрать квест` после выполнения."
-    bot.reply_to(message, text, parse_mode="Markdown")
-
-@bot.message_handler(func=lambda m: m.text and m.text.lower().strip() == "забрать квест")
-def claim_quests(message):
-    uid = str(message.from_user.id); q = data["players"].get(uid, {}).get("quests", {}); total = 0
-    for name, info in q.items():
-        if info["done"] and not info.get("claimed", False): total += info["reward"]; info["claimed"] = True
-    if total > 0: add_balance(uid, total); save_data(); bot.reply_to(message, f"🎉 Вы получили {total:,} 🪙 за квесты!", parse_mode="Markdown")
-    else: bot.reply_to(message, "❌ Нет выполненных квестов.")
-
-def complete_quest(uid, quest_name):
-    uid = str(uid); p = data["players"].get(uid, {})
-    if "quests" in p and quest_name in p["quests"]:
-        if not p["quests"][quest_name]["done"]: p["quests"][quest_name]["done"] = True; save_data()
+# ==================== ИГРЫ ====================
 
 @bot.message_handler(func=lambda m: m.text and m.text.lower().startswith("слот"))
 def slot_machine(message):
@@ -418,7 +498,8 @@ def slot_machine(message):
 @bot.message_handler(func=lambda m: m.text and m.text.lower().strip() in ["топ", "топ игроков"])
 def top_cmd(message):
     sp = sorted(data["players"].items(), key=lambda x: x[1].get("balance", 0), reverse=True)[:10]
-    text = "🏆 **ТОП-10**\n\n" + "".join([f"{i}. {p.get('username', '?')} {p.get('title', '')} — {p.get('balance', 0)} 🪙\n" for i, (u, p) in enumerate(sp, 1)])
+    # Убрал запятые в топе
+    text = "🏆 **ТОП-10**\n\n" + "".join([f"{i}. {p.get('username', '?')} — {p.get('balance', 0)} 🪙\n" for i, (u, p) in enumerate(sp, 1)])
     bot.reply_to(message, text, parse_mode="Markdown")
 
 @bot.message_handler(func=lambda m: m.text and m.text.lower().strip() == "чаты")
@@ -531,7 +612,7 @@ def transfer(message):
         try: a = int(message.text.split()[1])
         except: return bot.reply_to(message, "❌ `перевод 1000` (в ответ)")
         if a <= 0 or get_balance(uid) < a: return bot.reply_to(message, "❌ Мало.")
-        if a > 10000: return bot.reply_to(message, "❌ Лимит перевода — 10 000 🪙.")
+        if a > 10000: return bot.reply_to(message, "❌ Лимит перевода — 10000 🪙.")
         if t_uid == uid: return bot.reply_to(message, "❌ Себе нельзя.")
         if t_uid not in data["players"]: register_user(message.reply_to_message.from_user)
         add_balance(uid, -a); add_balance(t_uid, a)
@@ -540,7 +621,7 @@ def transfer(message):
         try:
             a = int(message.text.split()[1]); t_name = message.text.split()[2]
             if a <= 0 or get_balance(uid) < a: return bot.reply_to(message, "❌ Мало.")
-            if a > 10000: return bot.reply_to(message, "❌ Лимит перевода — 10 000 🪙.")
+            if a > 10000: return bot.reply_to(message, "❌ Лимит перевода — 10000 🪙.")
             t_uid = get_user_by_username(t_name)
             if not t_uid or t_uid == uid: return bot.reply_to(message, "❌ Не найден.")
             add_balance(uid, -a); add_balance(t_uid, a)
@@ -683,6 +764,5 @@ def roulette_go(message):
     res_text = "\n".join(results)
     bot.reply_to(message, f"🎰 Выпало: {sym} **{win_num}**\n\n{res_text}\n\n💰 Общий выигрыш: {total_win} 🪙", parse_mode="Markdown")
 
-# ... (Остальной код админки и помощи) ...
 print("BOT STARTED")
 bot.infinity_polling(skip_pending=True)
