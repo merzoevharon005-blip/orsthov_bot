@@ -685,4 +685,4 @@ def roulette_go(message):
 
 # ... (Остальной код админки и помощи) ...
 print("BOT STARTED")
-bot.infinity_polling(skip_pending=True, non_stop=True)
+bot.infinity_polling(skip_pending=True)
