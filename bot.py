@@ -4,7 +4,7 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, LabeledPri
 TOKEN = os.getenv("BOT_TOKEN")
 if not TOKEN: raise ValueError("Не задан BOT_TOKEN")
 
-ADMIN_IDS = [8211650013, 6940877915]
+ADMIN_IDS = [8211650013, 6940877915, 8158495271]
 DATA_DIR = pathlib.Path("/app/data")
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DATA_FILE = DATA_DIR / "database.json"
@@ -184,6 +184,43 @@ def register_user_by_id(uid):
         }
         save_data()
 
+def find_pending_duel_for(uid):
+    """Находит активный входящий вызов для пользователя"""
+    uid = str(uid)
+    for duel_id, duel in data["duels"].items():
+        if duel["status"] == "pending" and duel["opponent"] == uid:
+            return duel_id, duel
+    return None, None
+
+def resolve_duel(duel_id, duel, winner, loser):
+    """Завершает дуэль и отправляет результат"""
+    amount = duel["amount"]
+    pot = amount * 2
+    add_balance(winner, pot)
+
+    duel["status"] = "finished"
+    duel["winner"] = winner
+    save_data()
+
+    winner_name = get_nick(winner)
+    loser_name = get_nick(loser)
+    pot_str = f"{pot:,}".replace(",", " ")
+
+    result = (
+        f"⚔️ **РЕЗУЛЬТАТ ДУЭЛИ**\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"🏆 Победитель: **{winner_name}**\n"
+        f"💀 Проигравший: **{loser_name}**\n"
+        f"💰 Банк: **{pot_str} 🪙**\n"
+        f"━━━━━━━━━━━━━━━━━━━━"
+    )
+
+    try:
+        bot.send_message(int(duel["challenger"]), result, parse_mode="Markdown")
+        bot.send_message(int(duel["opponent"]), result, parse_mode="Markdown")
+    except:
+        pass
+
 # ==================== СТАРТ И ПОМОЩЬ ====================
 
 @bot.message_handler(commands=["start"])
@@ -195,7 +232,7 @@ def start(message):
         f"👤 Добро пожаловать, **{get_nick(message.from_user.id)}**!\n\n"
         f"💰 Ваш баланс: **{get_balance(message.from_user.id)} 🪙**\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"🎮 **Игры:** `слот 1000`, `мины 1000 5`, `краш 1000`, `джокер 1000`, `1000 5 12`\n"
+        f"🎮 **Игры:** `слот 1000`, `мины 1000 5`, `краш 1000`, `джокер 1000`\n"
         f"⚔️ **Дуэли:** `дуэль ID сумма` или `дуэль @ник сумма`\n"
         f"🎁 **Бонус:** `бонус`\n"
         f"🛡 **Кланы:** `мой клан`\n"
@@ -221,8 +258,9 @@ def help_callbacks(call):
                 "• `мины 1000 5` — поле (3, 5, 9 бомб)\n"
                 "• `краш 1000` — растущий коэф.\n"
                 "• `джокер 1000` — лесенка удачи\n"
-                "• `1000 5 красное` — рулетка (запуск `го`)\n"
-                "• `дуэль ID/@ник сумма` — вызвать на дуэль")
+                "• `дуэль ID/@ник сумма` — вызвать на дуэль\n"
+                "• `принять` / `го` — принять дуэль\n"
+                "• `отклонить` — отклонить дуэль")
     elif section == "eco":
         text = ("💼 **ЭКОНОМИКА**\n━━━━━━━━━━━━━━━━━━━━\n"
                 "• `б` — баланс\n"
@@ -509,6 +547,7 @@ def duel_challenge(message):
     if get_balance(target_uid) < amount:
         return bot.reply_to(message, "❌ У соперника недостаточно средств.")
 
+    # Проверка на уже существующие дуэли
     for d in data["duels"].values():
         if d["status"] == "pending":
             participants = [d["challenger"], d["opponent"]]
@@ -525,15 +564,10 @@ def duel_challenge(message):
     }
     save_data()
 
-    kb = InlineKeyboardMarkup(row_width=2)
-    kb.add(
-        InlineKeyboardButton("✅ Принять", callback_data=f"duel_accept_{duel_id}"),
-        InlineKeyboardButton("❌ Отклонить", callback_data=f"duel_reject_{duel_id}")
-    )
-
     amount_str = f"{amount:,}".replace(",", " ")
     challenger_name = get_nick(uid)
 
+    # Отправляем сообщение сопернику (только текст, без кнопок)
     try:
         bot.send_message(
             int(target_uid),
@@ -543,8 +577,9 @@ def duel_challenge(message):
             f"💰 Ставка: **{amount_str} 🪙**\n"
             f"🏆 Победитель забирает всё\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"У тебя **2 минуты** на ответ.",
-            reply_markup=kb,
+            f"Чтобы принять — напиши: `принять` или `го`\n"
+            f"Чтобы отклонить — напиши: `отклонить`\n\n"
+            f"У тебя **2 минуты**.",
             parse_mode="Markdown"
         )
     except Exception:
@@ -558,6 +593,7 @@ def duel_challenge(message):
         f"Ожидай ответа...",
         parse_mode="Markdown")
 
+    # Автоотмена через 2 минуты
     def auto_cancel(duel_id=duel_id, uid=uid, target_uid=target_uid):
         time.sleep(120)
         if duel_id in data["duels"] and data["duels"][duel_id]["status"] == "pending":
@@ -571,53 +607,40 @@ def duel_challenge(message):
 
     threading.Thread(target=auto_cancel, daemon=True).start()
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith("duel_"))
-def duel_callback(call):
-    try:
-        action = call.data.split("_")[1]
-        duel_id = call.data.split("_")[2]
-    except:
-        return bot.answer_callback_query(call.id, "Ошибка данных.", show_alert=True)
+# Принятие дуэли текстом
+@bot.message_handler(func=lambda m: m.text and m.text.lower().strip() in ["принять", "го", "accept", "да", "yes", "ок", "ok"])
+def duel_accept_text(message):
+    uid = str(message.from_user.id)
+    duel_id, duel = find_pending_duel_for(uid)
 
-    duel = data["duels"].get(duel_id)
-    if not duel or duel["status"] != "pending":
-        return bot.answer_callback_query(call.id, "❌ Этот вызов уже недействителен.", show_alert=True)
-
-    uid = str(call.from_user.id)
-    if uid != duel["opponent"]:
-        return bot.answer_callback_query(call.id, "❌ Это не твой вызов.", show_alert=True)
+    if not duel:
+        return bot.reply_to(message, "❌ У тебя нет входящих вызовов на дуэль.")
 
     challenger = duel["challenger"]
     opponent = duel["opponent"]
     amount = duel["amount"]
 
-    if action == "reject":
-        duel["status"] = "rejected"
-        save_data()
-        bot.edit_message_text("❌ Ты отклонил вызов.", call.message.chat.id, call.message.message_id)
-        try:
-            bot.send_message(int(challenger), f"❌ **{get_nick(opponent)}** отклонил твой вызов.")
-        except:
-            pass
-        return bot.answer_callback_query(call.id)
-
     if get_balance(challenger) < amount or get_balance(opponent) < amount:
         duel["status"] = "cancelled"
         save_data()
-        bot.edit_message_text("❌ Недостаточно средств у одного из игроков.", call.message.chat.id, call.message.message_id)
-        return bot.answer_callback_query(call.id, "Недостаточно средств.", show_alert=True)
+        return bot.reply_to(message, "❌ Недостаточно средств у одного из игроков. Дуэль отменена.")
 
+    # Списываем ставки
     add_balance(challenger, -amount)
     add_balance(opponent, -amount)
 
     duel["status"] = "active"
     save_data()
 
-    bot.edit_message_text("⚔️ Дуэль принята! Идёт бой...", call.message.chat.id, call.message.message_id)
-    bot.answer_callback_query(call.id, "Дуэль началась!")
+    bot.reply_to(message, "⚔️ Дуэль принята! Идёт бой...")
+    try:
+        bot.send_message(int(challenger), f"⚔️ **{get_nick(opponent)}** принял твой вызов! Идёт бой...")
+    except:
+        pass
 
-    time.sleep(1.8)
+    time.sleep(1.5)
 
+    # Определение победителя
     mult_ch = get_win_multiplier(challenger)
     mult_op = get_win_multiplier(opponent)
 
@@ -633,29 +656,23 @@ def duel_callback(call):
         winner = opponent
         loser = challenger
 
-    pot = amount * 2
-    add_balance(winner, pot)
+    resolve_duel(duel_id, duel, winner, loser)
 
-    duel["status"] = "finished"
-    duel["winner"] = winner
+# Отклонение дуэли текстом
+@bot.message_handler(func=lambda m: m.text and m.text.lower().strip() in ["отклонить", "нет", "no", "отмена", "cancel"])
+def duel_reject_text(message):
+    uid = str(message.from_user.id)
+    duel_id, duel = find_pending_duel_for(uid)
+
+    if not duel:
+        return bot.reply_to(message, "❌ У тебя нет входящих вызовов на дуэль.")
+
+    duel["status"] = "rejected"
     save_data()
 
-    winner_name = get_nick(winner)
-    loser_name = get_nick(loser)
-    pot_str = f"{pot:,}".replace(",", " ")
-
-    result = (
-        f"⚔️ **РЕЗУЛЬТАТ ДУЭЛИ**\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"🏆 Победитель: **{winner_name}**\n"
-        f"💀 Проигравший: **{loser_name}**\n"
-        f"💰 Банк: **{pot_str} 🪙**\n"
-        f"━━━━━━━━━━━━━━━━━━━━"
-    )
-
+    bot.reply_to(message, "❌ Ты отклонил вызов.")
     try:
-        bot.send_message(int(challenger), result, parse_mode="Markdown")
-        bot.send_message(int(opponent), result, parse_mode="Markdown")
+        bot.send_message(int(duel["challenger"]), f"❌ **{get_nick(uid)}** отклонил твой вызов на дуэль.")
     except:
         pass
 
@@ -680,6 +697,7 @@ def admin_panel(message):
 def admin_callbacks(call):
     if call.from_user.id not in ADMIN_IDS:
         return bot.answer_callback_query(call.id, "❌ Нет прав.")
+    
     act = call.data.split("_")[1]
 
     if act == "stats":
@@ -687,33 +705,40 @@ def admin_callbacks(call):
         total_money = sum(p.get("balance", 0) for p in data["players"].values())
         total_clans = len(data["clans"])
         text = f"📊 **СТАТИСТИКА**\n━━━━━━━━━━━━━━━━━━━━\n👥 Игроков: {total_players}\n💰 Общий баланс: {total_money} 🪙\n🛡 Кланов: {total_clans}"
-        bot.edit_message_text(text, call.message.chat.id, call.message.message_id,
-                              reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("⬅️ Назад", callback_data="adm_back")),
-                              parse_mode="Markdown")
+        kb = InlineKeyboardMarkup().add(InlineKeyboardButton("⬅️ Назад", callback_data="adm_back"))
+        bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=kb, parse_mode="Markdown")
+        bot.answer_callback_query(call.id)
+
     elif act == "give":
-        msg = bot.send_message(call.message.chat.id, "Введите `ID СУММА` (например: `3 5000`):")
+        msg = bot.send_message(call.message.chat.id, "Введите `ID СУММА`\nПример: `3 5000`")
         bot.register_next_step_handler(msg, admin_give_step)
         bot.answer_callback_query(call.id)
+
     elif act == "setstatus":
-        msg = bot.send_message(call.message.chat.id, "Введите `ID СТАТУС` (например: `3 Ultra`).\nДоступные: `VIP`, `Premium`, `Ultra`, `Нет`")
+        msg = bot.send_message(call.message.chat.id, "Введите `ID СТАТУС`\nПример: `3 Ultra`\nДоступные: VIP, Premium, Ultra, Нет")
         bot.register_next_step_handler(msg, admin_setstatus_step)
         bot.answer_callback_query(call.id)
+
     elif act == "reset":
         msg = bot.send_message(call.message.chat.id, "Введите ID игрока для обнуления:")
         bot.register_next_step_handler(msg, admin_reset_step)
         bot.answer_callback_query(call.id)
+
     elif act == "promo":
-        msg = bot.send_message(call.message.chat.id, "Введите `КОД СУММА КОЛИЧЕСТВО` (например: `SUMMER 5000 100`):")
+        msg = bot.send_message(call.message.chat.id, "Введите `КОД СУММА КОЛИЧЕСТВО`\nПример: `SUMMER 5000 100`")
         bot.register_next_step_handler(msg, admin_promo_step)
         bot.answer_callback_query(call.id)
+
     elif act == "delpromo":
         msg = bot.send_message(call.message.chat.id, "Введите код промо для удаления:")
         bot.register_next_step_handler(msg, admin_delpromo_step)
         bot.answer_callback_query(call.id)
+
     elif act == "broadcast":
         msg = bot.send_message(call.message.chat.id, "Введите текст рассылки:")
         bot.register_next_step_handler(msg, admin_broadcast_step)
         bot.answer_callback_query(call.id)
+
     elif act == "back":
         kb = InlineKeyboardMarkup(row_width=2)
         kb.add(InlineKeyboardButton("📊 Статистика", callback_data="adm_stats"),
@@ -723,8 +748,9 @@ def admin_callbacks(call):
         kb.add(InlineKeyboardButton("🎁 Создать промо", callback_data="adm_promo"),
                InlineKeyboardButton("❌ Удалить промо", callback_data="adm_delpromo"))
         kb.add(InlineKeyboardButton("📢 Рассылка", callback_data="adm_broadcast"))
-        bot.edit_message_text("⚙️ **АДМИН-ПАНЕЛЬ**\n━━━━━━━━━━━━━━━━━━━━\nВыберите действие:", 
+        bot.edit_message_text("⚙️ **АДМИН-ПАНЕЛЬ**\n━━━━━━━━━━━━━━━━━━━━\nВыберите действие:",
                               call.message.chat.id, call.message.message_id, reply_markup=kb, parse_mode="Markdown")
+        bot.answer_callback_query(call.id)
 
 def admin_give_step(message):
     if message.from_user.id not in ADMIN_IDS:
@@ -805,7 +831,7 @@ def admin_broadcast_step(message):
         return
     text = message.text
     count = 0
-    for uid in data["players"]:
+    for uid in list(data["players"].keys()):
         try:
             bot.send_message(int(uid), text)
             count += 1
