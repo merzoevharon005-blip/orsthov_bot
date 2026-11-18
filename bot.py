@@ -49,9 +49,7 @@ def migrate_data():
 migrate_data()
 bot = telebot.TeleBot(TOKEN)
 
-# Коэффициенты для мин (3, 5, 9 бомб)
 MULT = {3: 1.15, 5: 1.25, 9: 1.45}
-
 BIZ_TERRITORY_COST = {0: 10000, 1: 50000, 2: 250000, 3: 1000000, 4: 5000000, 5: 25000000}
 BIZ_BUILDING_COST = {1: 20000, 2: 100000, 3: 500000, 4: 2000000, 5: 10000000}
 
@@ -317,7 +315,7 @@ def admin_panel(message):
     if message.from_user.id not in ADMIN_IDS: return
     kb = InlineKeyboardMarkup(row_width=2)
     kb.add(InlineKeyboardButton("📊 Статистика", callback_data="adm_stats"), InlineKeyboardButton("💰 Выдать деньги", callback_data="adm_give"))
-    kb.add(InlineKeyboardButton("👑 Выдать статус", callback_data="adm_setstatus"), InlineKeyboardButton("🗑 Удалить игрока", callback_data="adm_reset"))
+    kb.add(InlineKeyboardButton("👑 Выдать статус", callback_data="adm_setstatus"), InlineKeyboardButton("🗑 Обнулить игрока", callback_data="adm_reset"))
     kb.add(InlineKeyboardButton("🎁 Создать промо", callback_data="adm_promo"), InlineKeyboardButton("❌ Удалить промо", callback_data="adm_delpromo"))
     kb.add(InlineKeyboardButton("📢 Рассылка", callback_data="adm_broadcast"))
     bot.reply_to(message, "⚙️ **АДМИН-ПАНЕЛЬ**\n━━━━━━━━━━━━━━━━━━━━\nВыберите действие:", reply_markup=kb, parse_mode="Markdown")
@@ -341,7 +339,7 @@ def admin_callbacks(call):
         bot.register_next_step_handler(msg, admin_setstatus_step)
         bot.answer_callback_query(call.id)
     elif act == "reset":
-        msg = bot.send_message(call.message.chat.id, "Введите `ID` игрока для сброса баланса (например: `3`):")
+        msg = bot.send_message(call.message.chat.id, "Введите `ID` игрока для обнуления баланса (например: `3`):")
         bot.register_next_step_handler(msg, admin_reset_step)
         bot.answer_callback_query(call.id)
     elif act == "promo":
@@ -437,4 +435,9 @@ def give_command(message):
     try:
         parts = message.text.split(); target_sid = parts[1]; amount = int(parts[2])
         target_uid = get_user_by_short_id(target_sid)
-        if not target_uid: return bot.reply_to(message, f"❌ Игрок {target_s
+        if not target_uid: return bot.reply_to(message, f"❌ Игрок {target_sid} не найден.")
+        add_balance(target_uid, amount)
+        bot.reply_to(message, f"✅ Выдано {amount} 🪙 игроку {get_nick(target_uid)}.", parse_mode="Markdown")
+    except: bot.reply_to(message, "❌ `/give ID СУММА`", parse_mode="Markdown")
+
+@bot.message
