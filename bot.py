@@ -4,7 +4,7 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, LabeledPri
 TOKEN = os.getenv("BOT_TOKEN")
 if not TOKEN: raise ValueError("Не задан BOT_TOKEN")
 
-ADMIN_IDS = [8211650013, 6940877915, 8158495271]
+ADMIN_IDS = [8211650013, 6940877915]
 DATA_DIR = pathlib.Path("/app/data")
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DATA_FILE = DATA_DIR / "database.json"
