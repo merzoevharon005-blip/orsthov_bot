@@ -100,7 +100,7 @@ def register_user_by_id(uid):
 def start(message):
     register_user(message.from_user)
     bot.send_message(message.chat.id, 
-        f"🎰 **MON1 CASINO RPG** 🎰\n"
+        f"🎰 **MON1 GAME RPG** 🎰\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"👤 Добро пожаловать, **{get_nick(message.from_user.id)}**!\n\n"
         f"💰 Ваш баланс: **{get_balance(message.from_user.id)} 🪙**\n"
