@@ -8,7 +8,7 @@ ADMIN_IDS = [8211650013, 6940877915]
 DATA_DIR = pathlib.Path("/app/data"); DATA_DIR.mkdir(parents=True, exist_ok=True)
 DATA_FILE = DATA_DIR / "database.json"
 
-data = {"players": {}, "promos": {}, "activations": [], "history": [], "clans": {}, "next_id": 1, "active_games": {}, "roulette_bets": {}, "duels": {}, "banned": {}, "muted": {}, "blacklist": {}}
+data = {"players": {}, "promos": {}, "activations": [], "history": [], "clans": {}, "next_id": 1, "active_games": {}, "roulette_bets": {}, "duels": {}, "banned": {}, "muted": {}, "blacklist": {}, "reports": [], "admin_logs": []}
 db_lock = threading.Lock()
 
 def load_data():
@@ -48,13 +48,18 @@ def migrate_data():
     if "banned" not in data: data["banned"] = {}
     if "muted" not in data: data["muted"] = {}
     if "blacklist" not in data: data["blacklist"] = {}
+    if "reports" not in data: data["reports"] = []
+    if "admin_logs" not in data: data["admin_logs"] = []
     if changed: save_data()
 
 migrate_data()
 bot = telebot.TeleBot(TOKEN)
 
-def is_banned_or_muted(uid):
+def is_blocked(uid):
+    """ЧС / бан / мут — полная блокировка взаимодействия"""
     uid = str(uid)
+    if uid in data.get("blacklist", {}):
+        return "chs"
     if uid in data.get("banned", {}):
         return "ban"
     mute = data.get("muted", {}).get(uid)
@@ -66,15 +71,44 @@ def is_banned_or_muted(uid):
         save_data()
     return None
 
-# Блокировка банов/мутов — раньше остальных команд
-@bot.message_handler(func=lambda m: is_banned_or_muted(m.from_user.id) is not None, content_types=["text"])
-def block_banned_muted(message):
-    status = is_banned_or_muted(message.from_user.id)
-    if status == "ban":
-        return
+def add_admin_log(action, admin_id, target=None, detail=""):
+    entry = {
+        "time": int(time.time()),
+        "action": action,
+        "admin": str(admin_id),
+        "target": str(target) if target else None,
+        "detail": detail
+    }
+    data.setdefault("admin_logs", []).append(entry)
+    # храним последние 300 логов
+    if len(data["admin_logs"]) > 300:
+        data["admin_logs"] = data["admin_logs"][-300:]
+    save_data()
+
+# Блокировка ЧС / бан / мут — раньше всех команд
+@bot.message_handler(func=lambda m: is_blocked(m.from_user.id) is not None, content_types=["text"])
+def block_restricted(message):
+    status = is_blocked(message.from_user.id)
+    if status in ("chs", "ban"):
+        return  # полный игнор
     if status == "mute":
         try:
             bot.reply_to(message, "🔇 Вы в муте и не можете писать.")
+        except:
+            pass
+
+@bot.callback_query_handler(func=lambda call: is_blocked(call.from_user.id) is not None)
+def block_restricted_cb(call):
+    status = is_blocked(call.from_user.id)
+    if status in ("chs", "ban"):
+        try:
+            bot.answer_callback_query(call.id, "⛔ Доступ запрещён.", show_alert=True)
+        except:
+            pass
+        return
+    if status == "mute":
+        try:
+            bot.answer_callback_query(call.id, "🔇 Вы в муте.", show_alert=True)
         except:
             pass
 
@@ -173,6 +207,7 @@ def daily_bonus(message):
     reward = random.randint(1000, 3000)
     add_balance(uid, reward)
     data["players"][uid]["last_bonus"] = now; save_data()
+    complete_quest(uid, "bonus")
     bot.reply_to(message, f"🎁 **ЕЖЕДНЕВНЫЙ БОНУС**\n━━━━━━━━━━━━━━━━━━━━\nВы получили: **{reward} 🪙**\n━━━━━━━━━━━━━━━━━━━━\nПриходите завтра!", parse_mode="Markdown")
 
 # ==================== ДОНАТ И СТАТУСЫ ====================
@@ -932,7 +967,8 @@ def slot_machine(message):
             msg = f"🎰 **СЛОТ**\n[ {s[0]} | {s[1]} | {s[2]} ]\n🎉 **ВЫИГРЫШ!** +{win} 🪙\nБаланс: {get_balance(uid)}"
         else:
             msg = f"🎰 **СЛОТ**\n[ {s[0]} | {s[1]} | {s[2]} ]\n😢 Проигрыш.\nБаланс: {get_balance(uid)}"
-        bot.reply_to(message, msg, parse_mode="Markdown"); complete_quest(uid, "Сделать ставку в слот")
+        bot.reply_to(message, msg, parse_mode="Markdown")
+        complete_quest(uid, "slot")
     except: bot.reply_to(message, "❌ `слот 1000`")
 
 @bot.message_handler(func=lambda m: m.text and m.text.lower().startswith("мины"))
@@ -945,6 +981,7 @@ def start_mines(message):
         add_balance(uid, -bet); gid = str(random.randint(10000, 99999))
         data["active_games"][gid] = {"type": "mines", "user": uid, "bet": bet, "mines": random.sample(range(25), bmb), "opened": [], "bombs": bmb}; save_data()
         bot.reply_to(message, f"💣 **МИНЫ** #{gid}\nСтавка: {bet} 🪙\nМин: {bmb}", reply_markup=mines_kb(gid), parse_mode="Markdown")
+        complete_quest(uid, "mines")
     except: bot.reply_to(message, "❌ `мины 1000 5`")
 
 def mines_kb(gid):
@@ -986,6 +1023,7 @@ def start_crash(message):
         data["active_games"][gid] = {"type": "crash", "user": uid, "bet": bet, "crash_point": round(random.uniform(1.1, 10.0), 2), "current": 1.0, "active": True}; save_data()
         kb = InlineKeyboardMarkup().add(InlineKeyboardButton("💰 ЗАБРАТЬ", callback_data=f"ccash_{gid}"))
         msg = bot.reply_to(message, f"🚀 **CRASH**\nСтавка: {bet}\nКоэф: x1.00", reply_markup=kb)
+        complete_quest(uid, "crash")
         threading.Thread(target=crash_loop, args=(gid, uid, msg.chat.id, msg.message_id)).start()
     except: bot.reply_to(message, "❌ `краш 1000`")
 
@@ -1023,6 +1061,7 @@ def start_joker(message):
         add_balance(uid, -bet); gid = str(random.randint(10000, 99999))
         data["active_games"][gid] = {"type": "joker", "user": uid, "bet": bet, "step": 0, "mult": 1.0, "active": True}; save_data()
         show_joker_menu(message.chat.id, gid, uid, None)
+        complete_quest(uid, "joker")
     except: bot.reply_to(message, "❌ `джокер 1000`")
 
 def show_joker_menu(cid, gid, uid, msg_id):
@@ -1278,34 +1317,89 @@ def transfer(message):
             add_balance(uid, -a); add_balance(t_uid, a); bot.reply_to(message, f"✅ {a} 🪙 переведено {get_nick(t_uid)}.")
         except: bot.reply_to(message, "❌ `перевод 1000 ник`")
 
-@bot.message_handler(func=lambda m: m.text and m.text.lower().strip() == "квесты")
-def quests_menu(message):
-    uid = str(message.from_user.id); p = data["players"].get(uid, {}); now = int(time.time())
+DAILY_QUESTS_TEMPLATE = {
+    "slot": {"name": "Сделать 3 ставки в слот", "need": 3, "reward": 800},
+    "crash": {"name": "Сыграть в краш 2 раза", "need": 2, "reward": 800},
+    "mines": {"name": "Сыграть в мины", "need": 1, "reward": 600},
+    "joker": {"name": "Сыграть в джокер", "need": 1, "reward": 600},
+    "bonus": {"name": "Забрать ежедневный бонус", "need": 1, "reward": 500},
+}
+
+def ensure_daily_quests(uid):
+    uid = str(uid)
+    if uid not in data["players"]:
+        return
+    p = data["players"][uid]
+    now = int(time.time())
     if "quest_date" not in p or now - p.get("quest_date", 0) >= 86400:
-        data["players"][uid]["quests"] = {
-            "Сделать ставку в слот": {"done": False, "reward": 500, "claimed": False},
-            "Сыграть в краш": {"done": False, "reward": 500, "claimed": False},
-            "Открыть депозит": {"done": False, "reward": 500, "claimed": False}
-        }
-        data["players"][uid]["quest_date"] = now; save_data()
-    q = p.get("quests", {}); text = "📜 **Ежедневные квесты**\n\n"
-    for name, info in q.items():
-        status = "✅" if info.get("done") else "❌"; text += f"{status} {name} (+{info['reward']} 🪙)\n"
-    text += "\nНапишите `забрать квест` после выполнения."
-    bot.reply_to(message, text, parse_mode="Markdown")
+        quests = {}
+        for key, tpl in DAILY_QUESTS_TEMPLATE.items():
+            quests[key] = {
+                "name": tpl["name"],
+                "need": tpl["need"],
+                "progress": 0,
+                "reward": tpl["reward"],
+                "done": False,
+                "claimed": False
+            }
+        data["players"][uid]["quests"] = quests
+        data["players"][uid]["quest_date"] = now
+        save_data()
+
+@bot.message_handler(func=lambda m: m.text and m.text.lower().strip() in ["квесты", "задания", "квест"])
+def quests_menu(message):
+    uid = str(message.from_user.id)
+    if uid not in data["players"]:
+        register_user(message.from_user)
+    ensure_daily_quests(uid)
+    q = data["players"][uid].get("quests", {})
+    text = "📜 Ежедневные задания\n━━━━━━━━━━━━━━━━━━━━\n"
+    for key, info in q.items():
+        if info.get("done"):
+            mark = "✅" if not info.get("claimed") else "🎁"
+        else:
+            mark = "❌"
+        prog = f"{info.get('progress', 0)}/{info.get('need', 1)}"
+        text += f"{mark} {info.get('name', key)} [{prog}] +{info.get('reward', 0)} 🪙\n"
+    text += "\nНапишите: забрать квест"
+    bot.reply_to(message, text)
 
 @bot.message_handler(func=lambda m: m.text and m.text.lower().strip() == "забрать квест")
 def claim_quests(message):
-    uid = str(message.from_user.id); q = data["players"].get(uid, {}).get("quests", {}); total = 0
-    for name, info in q.items():
-        if info.get("done") and not info.get("claimed", False): total += info["reward"]; info["claimed"] = True
-    if total > 0: add_balance(uid, total); save_data(); bot.reply_to(message, f"🎉 Вы получили {total} 🪙 за квесты!", parse_mode="Markdown")
-    else: bot.reply_to(message, "❌ Нет выполненных или незабранных квестов.")
+    uid = str(message.from_user.id)
+    ensure_daily_quests(uid)
+    q = data["players"].get(uid, {}).get("quests", {})
+    total = 0
+    claimed_names = []
+    for key, info in q.items():
+        if info.get("done") and not info.get("claimed", False):
+            total += info.get("reward", 0)
+            info["claimed"] = True
+            claimed_names.append(info.get("name", key))
+    if total > 0:
+        add_balance(uid, total)
+        save_data()
+        bot.reply_to(message, f"🎉 Получено {total} 🪙\n" + "\n".join(f"• {n}" for n in claimed_names))
+    else:
+        bot.reply_to(message, "❌ Нет выполненных незабранных заданий.\nСмотри: квесты")
 
-def complete_quest(uid, quest_name):
-    uid = str(uid); p = data["players"].get(uid, {})
-    if "quests" in p and quest_name in p["quests"]:
-        if not p["quests"][quest_name]["done"]: p["quests"][quest_name]["done"] = True; save_data()
+def complete_quest(uid, quest_key, amount=1):
+    """quest_key: slot / crash / mines / joker / bonus"""
+    uid = str(uid)
+    if uid not in data["players"]:
+        return
+    ensure_daily_quests(uid)
+    q = data["players"][uid].get("quests", {})
+    if quest_key not in q:
+        return
+    info = q[quest_key]
+    if info.get("done"):
+        return
+    info["progress"] = info.get("progress", 0) + amount
+    if info["progress"] >= info.get("need", 1):
+        info["progress"] = info.get("need", 1)
+        info["done"] = True
+    save_data()
 
 
 # ==================== РЕПОРТ / БАН / МУТ / ЧС ====================
@@ -1339,15 +1433,34 @@ def report_cmd(message):
     if len(parts) < 2:
         return bot.reply_to(message, "❌ Формат:\n`/репорт текст жалобы`\nили ответом на сообщение: `/репорт причина`", parse_mode="Markdown")
     reason = parts[1].strip()
+    target_uid = None
+    target_name = None
     target_info = ""
     if message.reply_to_message:
         t = message.reply_to_message.from_user
-        target_info = f"\n👤 На кого: {t.first_name} (@{t.username or '—'})\n🆔 TG ID: `{t.id}`"
+        target_uid = str(t.id)
+        target_name = t.first_name or str(t.id)
+        target_info = f"\n👤 На кого: {target_name} (@{t.username or '—'})\n🆔 TG ID: `{t.id}`"
+    # сохраняем репорт
+    report = {
+        "id": len(data.get("reports", [])) + 1,
+        "time": int(time.time()),
+        "from_uid": uid,
+        "from_nick": get_nick(uid),
+        "from_sid": get_user_short_id(uid),
+        "target_uid": target_uid,
+        "target_name": target_name,
+        "reason": reason
+    }
+    data.setdefault("reports", []).append(report)
+    if len(data["reports"]) > 200:
+        data["reports"] = data["reports"][-200:]
+    save_data()
     text = (
-        f"🚨 **ЖАЛОБА**\n"
+        f"🚨 ЖАЛОБА #{report['id']}\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"От: **{get_nick(uid)}** (`{get_user_short_id(uid)}`)\n"
-        f"TG ID: `{uid}`"
+        f"От: {get_nick(uid)} ({get_user_short_id(uid)})\n"
+        f"TG ID: {uid}"
         f"{target_info}\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"📝 {reason}"
@@ -1355,12 +1468,12 @@ def report_cmd(message):
     sent = 0
     for admin_id in ADMIN_IDS:
         try:
-            bot.send_message(admin_id, text, parse_mode="Markdown")
+            bot.send_message(admin_id, text)
             sent += 1
         except:
             pass
     if sent:
-        bot.reply_to(message, "✅ Жалоба отправлена администраторам.")
+        bot.reply_to(message, f"✅ Жалоба #{report['id']} отправлена администраторам.")
     else:
         bot.reply_to(message, "❌ Не удалось отправить жалобу. Попробуйте позже.")
 
@@ -1376,10 +1489,10 @@ def ban_cmd(message):
         return bot.reply_to(message, "❌ Игрок не найден.")
     reason = " ".join(parts[2:]) if len(parts) > 2 else "Без причины"
     data["banned"][target] = {"reason": reason, "by": message.from_user.id, "time": int(time.time())}
-    # также в чс
     data["blacklist"][target] = True
     save_data()
-    bot.reply_to(message, f"🚫 Игрок **{get_nick(target)}** (`{get_user_short_id(target)}`) забанен.\nПричина: {reason}", parse_mode="Markdown")
+    add_admin_log("ban", message.from_user.id, target, reason)
+    bot.reply_to(message, f"🚫 Игрок {get_nick(target)} ({get_user_short_id(target)}) забанен.\nПричина: {reason}")
     try:
         bot.send_message(int(target), f"🚫 Вы забанены.\nПричина: {reason}")
     except:
@@ -1398,7 +1511,8 @@ def unban_cmd(message):
     data["banned"].pop(target, None)
     data["blacklist"].pop(target, None)
     save_data()
-    bot.reply_to(message, f"✅ Игрок **{get_nick(target)}** разбанен.", parse_mode="Markdown")
+    add_admin_log("unban", message.from_user.id, target)
+    bot.reply_to(message, f"✅ Игрок {get_nick(target)} разбанен.")
 
 @bot.message_handler(commands=["mute"])
 def mute_cmd(message):
@@ -1419,10 +1533,11 @@ def mute_cmd(message):
     until = int(time.time()) + minutes * 60 if minutes else 0
     data["muted"][target] = {"until": until, "by": message.from_user.id}
     save_data()
+    add_admin_log("mute", message.from_user.id, target, f"{minutes or 'perm'} min")
     if minutes:
-        bot.reply_to(message, f"🔇 Игрок **{get_nick(target)}** в муте на {minutes} мин.", parse_mode="Markdown")
+        bot.reply_to(message, f"🔇 Игрок {get_nick(target)} в муте на {minutes} мин.")
     else:
-        bot.reply_to(message, f"🔇 Игрок **{get_nick(target)}** в муте навсегда.", parse_mode="Markdown")
+        bot.reply_to(message, f"🔇 Игрок {get_nick(target)} в муте навсегда.")
     try:
         bot.send_message(int(target), "🔇 Вы получили мут.")
     except:
@@ -1440,7 +1555,8 @@ def unmute_cmd(message):
         return bot.reply_to(message, "❌ Игрок не найден.")
     data["muted"].pop(target, None)
     save_data()
-    bot.reply_to(message, f"✅ Мут снят с **{get_nick(target)}**.", parse_mode="Markdown")
+    add_admin_log("unmute", message.from_user.id, target)
+    bot.reply_to(message, f"✅ Мут снят с {get_nick(target)}.")
 
 @bot.message_handler(commands=["чс", "blacklist", "bl"])
 def blacklist_cmd(message):
@@ -1448,7 +1564,15 @@ def blacklist_cmd(message):
         return
     parts = message.text.split()
     if len(parts) < 2:
-        return bot.reply_to(message, "❌ Формат: `/чс ID/@ник` — добавить\n`/чс del ID/@ник` — убрать", parse_mode="Markdown")
+        return bot.reply_to(message, "❌ Формат:\n/чс ID/@ник — добавить\n/чс del ID/@ник — убрать\n/чс list — список")
+    if parts[1].lower() in ["list", "список"]:
+        bl = data.get("blacklist", {})
+        if not bl:
+            return bot.reply_to(message, "ЧС пуст.")
+        lines = []
+        for i, uid in enumerate(list(bl.keys())[:30], 1):
+            lines.append(f"{i}. {get_nick(uid)} ({get_user_short_id(uid)}) — {uid}")
+        return bot.reply_to(message, "⛔ Чёрный список:\n" + "\n".join(lines))
     if parts[1].lower() in ["del", "удалить", "remove"]:
         if len(parts) < 3:
             return bot.reply_to(message, "❌ Укажите игрока.")
@@ -1457,13 +1581,57 @@ def blacklist_cmd(message):
             return bot.reply_to(message, "❌ Игрок не найден.")
         data["blacklist"].pop(target, None)
         save_data()
-        return bot.reply_to(message, f"✅ **{get_nick(target)}** убран из ЧС.", parse_mode="Markdown")
+        add_admin_log("chs_del", message.from_user.id, target)
+        return bot.reply_to(message, f"✅ {get_nick(target)} убран из ЧС.")
     target = resolve_target(parts[1])
     if not target:
-        return bot.reply_to(message, "❌ Игрок не найден.")
-    data["blacklist"][target] = True
+        # если не в базе — можно добавить по сырому TG ID
+        raw = parts[1].replace("@", "")
+        if raw.isdigit():
+            target = raw
+        else:
+            return bot.reply_to(message, "❌ Игрок не найден.")
+    data["blacklist"][str(target)] = True
     save_data()
-    bot.reply_to(message, f"⛔ **{get_nick(target)}** добавлен в ЧС.", parse_mode="Markdown")
+    add_admin_log("chs_add", message.from_user.id, target)
+    bot.reply_to(message, f"⛔ {get_nick(target) if target in data['players'] else target} добавлен в ЧС.\nБот больше не отвечает этому пользователю.")
+
+@bot.message_handler(commands=["репорты", "reports"])
+def reports_list(message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    reports = data.get("reports", [])
+    if not reports:
+        return bot.reply_to(message, "📭 Репортов пока нет.")
+    # последние 15
+    last = reports[-15:]
+    lines = []
+    for r in reversed(last):
+        t = time.strftime("%d.%m %H:%M", time.localtime(r.get("time", 0)))
+        target = r.get("target_name") or "—"
+        lines.append(
+            f"#{r.get('id')} [{t}]\n"
+            f"От: {r.get('from_nick')} ({r.get('from_sid')})\n"
+            f"На: {target}\n"
+            f"📝 {r.get('reason', '')[:120]}\n"
+        )
+    bot.reply_to(message, "🚨 Последние репорты:\n\n" + "\n".join(lines))
+
+@bot.message_handler(commands=["логи", "logs"])
+def admin_logs_cmd(message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    logs = data.get("admin_logs", [])
+    if not logs:
+        return bot.reply_to(message, "📭 Логов пока нет.")
+    last = logs[-20:]
+    lines = []
+    for e in reversed(last):
+        t = time.strftime("%d.%m %H:%M", time.localtime(e.get("time", 0)))
+        target = e.get("target") or "—"
+        detail = e.get("detail") or ""
+        lines.append(f"[{t}] {e.get('action')} | admin:{e.get('admin')} | target:{target} {detail}")
+    bot.reply_to(message, "📋 Админ-логи:\n\n" + "\n".join(lines))
 
 print("BOT STARTED")
 bot.infinity_polling(skip_pending=True)
