@@ -160,25 +160,39 @@ def register_user_by_id(uid):
 @bot.message_handler(commands=["start"])
 def start(message):
     register_user(message.from_user)
-    uid = str(message.from_user.id)
+
+    bot_username = bot.get_me().username
+    add_to_group_url = f"https://t.me/{bot_username}?startgroup=true"
+
     kb = InlineKeyboardMarkup(row_width=2)
-    kb.add(InlineKeyboardButton("💳 Мой баланс", callback_data="home_balance"),
-           InlineKeyboardButton("🏢 Мой бизнес", callback_data="home_business"))
-    kb.add(InlineKeyboardButton("🎯 Задания", callback_data="home_quests"),
-           InlineKeyboardButton("📚 Как играть", callback_data="home_help"))
-    kb.add(InlineKeyboardButton("🧑‍🚀 Профиль", callback_data="home_profile"),
-           InlineKeyboardButton("🛡 Мой клан", callback_data="home_clan"))
-    bot.send_message(message.chat.id,
-        f"🌟 **MON1 GAME RPG**\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"👋 Рад видеть тебя, **{get_nick(message.from_user.id)}**!\n\n"
-        f"💰 **Твой баланс:** `{get_balance(uid):,} 🪙`\n"
-        f"🆔 **Игровой ID:** `{data['players'][uid].get('short_id', '—')}`\n\n"
-        f"🎮 Добро пожаловать в игровой мир!\n"
-        f"Зарабатывай монеты, выполняй задания,\n"
-        f"развивай бизнес и создавай свой клан.\n\n"
-        f"👇 **Выбери раздел, чтобы начать:**",
-        reply_markup=kb, parse_mode="Markdown")
+    kb.add(
+        InlineKeyboardButton("➕ Добавить бота в свой чат", url=add_to_group_url),
+        InlineKeyboardButton("📖 Помощь", callback_data="start_help")
+    )
+
+    bot.send_message(
+        message.chat.id,
+        f"🎮 **MON1 GAME RPG**\\n"
+        f"👋 Добро пожаловать, **{get_nick(message.from_user.id)}**!\\n\\n"
+        f"🚀 Играй, развивайся, выполняй задания, открывай бизнес и создавай кланы.\\n\\n"
+        f"🌐 **Наши сообщества**\\n"
+        f"📢 [Канал новостей](https://t.me/mon1bots)\\n"
+        f"💬 [Общий чат](https://t.me/mon1not)\\n\\n"
+        f"👇 Выбери действие:",
+        reply_markup=kb,
+        parse_mode="Markdown"
+    )
+
+@bot.callback_query_handler(func=lambda call: call.data == "start_help")
+def start_help_callback(call):
+    bot.answer_callback_query(call.id)
+    bot.send_message(
+        call.message.chat.id,
+        "📚 **ПОМОЩЬ MON1 GAME RPG**\\n"
+        "Выбери нужный раздел, чтобы посмотреть команды и узнать, как ими пользоваться.",
+        reply_markup=help_keyboard(),
+        parse_mode="Markdown"
+    )
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("home_"))
 def home_callbacks(call):
@@ -194,7 +208,7 @@ def home_callbacks(call):
             kb = InlineKeyboardMarkup().add(InlineKeyboardButton(
                 "🏗 Открыть свой бизнес · 3 000 🪙", callback_data="biz_build"))
             bot.send_message(call.message.chat.id,
-                f"🏢 **ТВОЙ БИЗНЕС**\n━━━━━━━━━━━━━━━━━━━━\n"
+                f"🏢 **ТВОЙ БИЗНЕС**\n"
                 f"У тебя пока нет предприятия.\n\n"
                 f"🏗 Построй первый уровень территории за **{BIZ_TERRITORY_COST[0]:,} 🪙**, "
                 f"чтобы начать получать доход.", reply_markup=kb, parse_mode="Markdown")
@@ -225,7 +239,7 @@ def help_keyboard():
 def help_command(message):
     bot.reply_to(message,
         "📚 **ПУТЕВОДИТЕЛЬ MON1 GAME**\n"
-        "━━━━━━━━━━━━━━━━━━━━\n"
+        ""
         "Новичок? Начни с раздела «Экономика» и узнай, как получать монеты.\n\n"
         "🎮 Игры — игровые режимы и команды.\n"
         "💰 Экономика — баланс, бонусы, банк и переводы.\n"
@@ -239,7 +253,7 @@ def help_command(message):
 def help_callbacks(call):
     section = call.data.split("_", 1)[1]
     pages = {
-        "games": "🎮 **ИГРОВАЯ ПЛОЩАДКА**\n━━━━━━━━━━━━━━━━━━━━\n"
+        "games": "🎮 **ИГРОВАЯ ПЛОЩАДКА**\n"
                  "Здесь собраны игровые команды. Напиши команду в чат,\n"
                  "укажи ставку и следуй подсказкам бота.\n\n"
                  "🎰 `слот 1000` — сыграть в слоты со ставкой 1 000 монет.\n"
@@ -248,7 +262,7 @@ def help_callbacks(call):
                  "🃏 `джокер 1000` — пройти раунд с выбором карт.\n"
                  "🎡 `1000 5 12` — подготовить ставку на колесо, затем `го`.\n\n"
                  "💡 Перед началом проверь условия раунда и размер ставки.",
-        "eco": "💰 **ЭКОНОМИКА И ПЕРСОНАЖ**\n━━━━━━━━━━━━━━━━━━━━\n"
+        "eco": "💰 **ЭКОНОМИКА И ПЕРСОНАЖ**\n"
                "Управляй монетами, получай награды и развивай профиль.\n\n"
                "💳 `б` — посмотреть свой баланс.\n"
                "🎁 `бонус` — получить ежедневную награду.\n"
@@ -262,7 +276,7 @@ def help_callbacks(call):
                "🎟 `промо КОД` — активировать промокод.\n"
                "✏️ `сменить ник НОВЫЙ_НИК` — изменить игровой ник.\n\n"
                "💡 Внимательно проверяй сумму и имя получателя перед переводом.",
-        "business": "🏢 **БИЗНЕС — УПРАВЛЕНИЕ**\n━━━━━━━━━━━━━━━━━━━━\n"
+        "business": "🏢 **БИЗНЕС — УПРАВЛЕНИЕ**\n"
                     "Открой своё дело и получай игровой доход со временем.\n\n"
                     "🏗 `мой бизнес` — открыть панель бизнеса.\n"
                     "🧱 `Построить бизнес` — купить первый уровень территории за 3 000 🪙.\n"
@@ -272,7 +286,7 @@ def help_callbacks(call):
                     "🧾 После сбора появляется налог — его можно оплатить кнопкой `Налоги`.\n"
                     "⏳ Доход накапливается максимум за 24 часа.\n\n"
                     "💡 Следи за налогами: пока они не оплачены, собрать следующий доход нельзя.",
-        "clans": "🛡 **КЛАНЫ И КОМАНДА**\n━━━━━━━━━━━━━━━━━━━━\n"
+        "clans": "🛡 **КЛАНЫ И КОМАНДА**\n"
                  "Объединяйся с другими игроками и развивай свой клан.\n\n"
                  "🏰 `создать клан ИМЯ` — создать клан за 10 000 🪙.\n"
                  "🤝 `вступить клан ID` — вступить в существующий клан.\n"
@@ -281,7 +295,7 @@ def help_callbacks(call):
                  "🏆 `топ кланов` — открыть рейтинг кланов.\n"
                  "🏦 `клан казна положить СУММА` — внести монеты в казну.\n"
                  "💸 `клан казна снять СУММА` — запросить снятие монет (если разрешено).",
-        "donate": "💎 **ЗВЁЗДЫ И СТАТУСЫ**\n━━━━━━━━━━━━━━━━━━━━\n"
+        "donate": "💎 **ЗВЁЗДЫ И СТАТУСЫ**\n"
                   "Здесь можно посмотреть дополнительные варианты поддержки проекта.\n\n"
                   "⭐ `донат` — открыть меню пополнения игрового баланса.\n"
                   "💠 `статусы` — посмотреть привилегии и купить статус.\n"
@@ -309,14 +323,14 @@ def daily_bonus(message):
     add_balance(uid, reward)
     data["players"][uid]["last_bonus"] = now; save_data()
     complete_quest(uid, "bonus")
-    bot.reply_to(message, f"🎁 **ЕЖЕДНЕВНЫЙ БОНУС**\n━━━━━━━━━━━━━━━━━━━━\nВы получили: **{reward} 🪙**\n━━━━━━━━━━━━━━━━━━━━\nПриходите завтра!", parse_mode="Markdown")
+    bot.reply_to(message, f"🎁 **ЕЖЕДНЕВНЫЙ БОНУС**\nВы получили: **{reward} 🪙**\nПриходите завтра!", parse_mode="Markdown")
 
 # ==================== ДОНАТ И СТАТУСЫ ====================
 
 @bot.message_handler(commands=['donate'])
 @bot.message_handler(func=lambda m: m.text and m.text.lower().strip() == 'донат')
 def donate_menu(message):
-    text = "💎 **ПОПОЛНЕНИЕ БАЛАНСА**\n━━━━━━━━━━━━━━━━━━━━\n1 ⭐ = 1000 🪙\n\nВыберите пакет:"
+    text = "💎 **ПОПОЛНЕНИЕ БАЛАНСА**\n1 ⭐ = 1000 🪙\n\nВыберите пакет:"
     kb = InlineKeyboardMarkup(row_width=1)
     kb.add(InlineKeyboardButton("25 ⭐ = 25000 🪙", callback_data="donate_pack_25"))
     kb.add(InlineKeyboardButton("50 ⭐ = 50000 🪙", callback_data="donate_pack_50"))
@@ -366,7 +380,7 @@ def got_payment(message):
         save_data()
         return bot.send_message(
             message.chat.id,
-            f"🎉 **ПОКУПКА УСПЕШНА!**\n━━━━━━━━━━━━━━━━━━━━\n"
+            f"🎉 **ПОКУПКА УСПЕШНА!**\n"
             f"💎 Получен статус: **{status}**\n"
             f"Открой команду `статусы`, чтобы посмотреть привилегии.",
             parse_mode="Markdown"
@@ -381,7 +395,7 @@ def got_payment(message):
         add_balance(uid, coins)
         bot.send_message(
             message.chat.id,
-            f"🎉 **ОПЛАТА УСПЕШНА!**\n━━━━━━━━━━━━━━━━━━━━\n"
+            f"🎉 **ОПЛАТА УСПЕШНА!**\n"
             f"💰 На баланс зачислено: **{coins:,} 🪙**",
             parse_mode="Markdown"
         )
@@ -391,20 +405,21 @@ def got_payment(message):
 def donate_status_menu(message):
     text = (
         "💎 **СТАТУСЫ MON1 GAME**\n"
-        "━━━━━━━━━━━━━━━━━━━━\n"
+        ""
         "👑 **VIP — 100 ⭐**\n"
-        "🏦 Депозит: **12% в день**\n"
+        "🏦 Банковский депозит: **12% в день**\n"
         "🎮 Бонус к выигрышу: **+3%**\n\n"
         "💠 **PREMIUM — 200 ⭐**\n"
-        "🏦 Депозит: **15% в день**\n"
+        "🏦 Банковский депозит: **15% в день**\n"
         "🎮 Бонус к выигрышу: **+6%**\n\n"
         "⚡ **ULTRA — 300 ⭐**\n"
-        "🏦 Депозит: **20% в день**\n"
+        "🏦 Банковский депозит: **20% в день**\n"
         "🎮 Бонус к выигрышу: **+10%**\n"
         "🆔 Просмотр ID других игроков\n"
         "👤 Просмотр чужого профиля командой `профиль ID`\n"
-        "━━━━━━━━━━━━━━━━━━━━\n"
-        "📌 Процент к выигрышу начисляется только на игровой выигрыш. "
+        ""
+        "📌 12%, 15% и 20% — это ежедневная доходность именно банковского депозита, а не шанс выигрыша.\\n"
+        "📌 Бонус +3%, +6% и +10% применяется отдельно к сумме игрового выигрыша. "
         "У статусов нет прежних бонусов +5%, +15% и +25%."
     )
     kb = InlineKeyboardMarkup(row_width=1)
@@ -439,7 +454,7 @@ def buy_status(call):
 def my_status(message):
     uid = str(message.from_user.id)
     status = data["players"].get(uid, {}).get("donate_status", "Нет")
-    bot.reply_to(message, f"💎 **ВАШ СТАТУС**\n━━━━━━━━━━━━━━━━━━━━\nТекущий статус: **{status}**", parse_mode="Markdown")
+    bot.reply_to(message, f"💎 **ВАШ СТАТУС**\nТекущий статус: **{status}**", parse_mode="Markdown")
 
 # ==================== БАЗОВЫЕ КОМАНДЫ ====================
 
@@ -447,7 +462,7 @@ def my_status(message):
 def balance_command(message):
     uid = str(message.from_user.id)
     if uid not in data["players"]: register_user(message.from_user)
-    bot.reply_to(message, f"💰 **БАЛАНС**\n━━━━━━━━━━━━━━━━━━━━\nВаш баланс: **{get_balance(uid)} 🪙**", parse_mode="Markdown")
+    bot.reply_to(message, f"💰 **БАЛАНС**\nВаш баланс: **{get_balance(uid)} 🪙**", parse_mode="Markdown")
 
 @bot.message_handler(func=lambda m: m.text and m.text.lower().strip() in ['узнать ид', 'мой ид', 'мой id'])
 def get_id_command(message):
@@ -460,7 +475,7 @@ def get_id_command(message):
             return bot.reply_to(message, "❌ **ДОСТУП ЗАПРЕЩЕН**\nСмотреть чужой ID могут только админы и Ultra.", parse_mode="Markdown")
     if target_uid not in data["players"]: register_user_by_id(target_uid)
     sid = get_user_short_id(target_uid)
-    bot.reply_to(message, f"🆔 **ID ИГРОКА**\n━━━━━━━━━━━━━━━━━━━━\n`{sid}`", parse_mode="Markdown")
+    bot.reply_to(message, f"🆔 **ID ИГРОКА**\n`{sid}`", parse_mode="Markdown")
 
 @bot.message_handler(func=lambda m: m.text and m.text.lower().startswith("сменить ник"))
 def change_nick(message):
@@ -470,7 +485,7 @@ def change_nick(message):
         if len(new_nick) < 3 or len(new_nick) > 15: return bot.reply_to(message, "❌ Ник от 3 до 15 символов.")
         data["players"][uid]["username"] = new_nick
         save_data()
-        bot.reply_to(message, f"✅ **НИК ИЗМЕНЕН**\n━━━━━━━━━━━━━━━━━━━━\nНовый ник: **{new_nick}**", parse_mode="Markdown")
+        bot.reply_to(message, f"✅ **НИК ИЗМЕНЕН**\nНовый ник: **{new_nick}**", parse_mode="Markdown")
     except: bot.reply_to(message, "❌ `сменить ник НОВЫЙ_НИК`")
 
 @bot.message_handler(func=lambda m: m.text and (m.text.lower().strip() == "профиль" or m.text.lower().strip().startswith("профиль ")))
@@ -502,15 +517,15 @@ def profile_command(message):
             clan_name = clan.get("name", "Нет")
     text = (
         "👤 **ПРОФИЛЬ ИГРОКА**\n"
-        "━━━━━━━━━━━━━━━━━━━━\n"
+        ""
         f"🆔 ID: `{p.get('short_id', '?')}`\n"
         f"👤 Ник: {p.get('username', '?')}\n"
         f"💎 Статус: {p.get('donate_status', 'Нет')}\n"
-        "━━━━━━━━━━━━━━━━━━━━\n"
+        ""
         f"💰 Баланс: {money_fmt(p.get('balance', 0))} 🪙\n"
         f"🏦 Банк: {money_fmt(p.get('bank', 0))} 🪙\n"
         f"💎 Депозит: {money_fmt(p.get('deposit', 0))} 🪙\n"
-        "━━━━━━━━━━━━━━━━━━━━\n"
+        ""
         f"🛡 Клан: {clan_name}\n"
         f"🏢 Бизнес: {p.get('biz_territory', 0)} м²"
     )
@@ -521,7 +536,7 @@ def top_cmd(message):
     try:
         players = list(data.get("players", {}).items())
         if not players:
-            return bot.reply_to(message, "🏆 ТОП-10 ИГРОКОВ\n━━━━━━━━━━━━━━━━━━━━\nПока никого нет.")
+            return bot.reply_to(message, "🏆 ТОП-10 ИГРОКОВ\nПока никого нет.")
         sp = sorted(players, key=lambda x: int(x[1].get("balance", 0) or 0), reverse=True)[:10]
         lines = []
         for i, (u, p) in enumerate(sp, 1):
@@ -532,14 +547,14 @@ def top_cmd(message):
                 name = "Player"
             bal = int(p.get("balance", 0) or 0)
             lines.append(f"{i}. {name} — {bal} 🪙")
-        text = "🏆 ТОП-10 ИГРОКОВ\n━━━━━━━━━━━━━━━━━━━━\n" + "\n".join(lines)
+        text = "🏆 ТОП-10 ИГРОКОВ\n" + "\n".join(lines)
         bot.reply_to(message, text)
     except Exception as e:
         bot.reply_to(message, f"Ошибка топа: {e}")
 
 @bot.message_handler(func=lambda m: m.text and m.text.lower().strip() == "чаты")
 def chats_cmd(message):
-    bot.reply_to(message, "💬 **НАШИ ЧАТЫ**\n━━━━━━━━━━━━━━━━━━━━\n📢 Канал: https://t.me/mon1bots\n💬 Чат: https://t.me/mon1not", parse_mode="Markdown")
+    bot.reply_to(message, "💬 **НАШИ ЧАТЫ**\n📢 Канал: https://t.me/mon1bots\n💬 Чат: https://t.me/mon1not", parse_mode="Markdown")
 
 # ==================== ДУЭЛИ (Камень-Ножницы-Бумага) ====================
 
@@ -589,10 +604,10 @@ def resolve_rps_duel(duel_id, duel):
     if result == 0:
         add_balance(ch, amount); add_balance(op, amount)
         duel["status"] = "draw"; save_data()
-        text = (f"⚔️ **ДУЭЛЬ — НИЧЬЯ**\n━━━━━━━━━━━━━━━━━━━━\n"
+        text = (f"⚔️ **ДУЭЛЬ — НИЧЬЯ**\n"
                 f"👤 {get_nick(ch)}: {emoji1} **{c1}**\n"
                 f"👤 {get_nick(op)}: {emoji2} **{c2}**\n"
-                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f""
                 f"🤝 Ставки возвращены ({amount} 🪙 каждому)")
     else:
         if result == 1: winner, loser = ch, op; w_choice, l_choice = c1, c2; w_emoji, l_emoji = emoji1, emoji2
@@ -600,10 +615,10 @@ def resolve_rps_duel(duel_id, duel):
         add_balance(winner, pot)
         duel["status"] = "finished"; duel["winner"] = winner; save_data()
         pot_str = f"{pot:,}".replace(",", " ")
-        text = (f"⚔️ **РЕЗУЛЬТАТ ДУЭЛИ**\n━━━━━━━━━━━━━━━━━━━━\n"
+        text = (f"⚔️ **РЕЗУЛЬТАТ ДУЭЛИ**\n"
                 f"🏆 **{get_nick(winner)}**: {w_emoji} **{w_choice}**\n"
                 f"💀 **{get_nick(loser)}**: {l_emoji} **{l_choice}**\n"
-                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f""
                 f"💰 Банк: **{pot_str} 🪙**")
     try:
         bot.send_message(int(ch), text, parse_mode="Markdown")
@@ -669,10 +684,10 @@ def duel_challenge(message):
 
     try:
         bot.send_message(int(target_uid),
-            f"⚔️ **ВЫЗОВ НА ДУЭЛЬ (КНБ)**\n━━━━━━━━━━━━━━━━━━━━\n"
+            f"⚔️ **ВЫЗОВ НА ДУЭЛЬ (КНБ)**\n"
             f"👤 **{get_nick(uid)}** вызывает тебя!\n"
             f"💰 Ставка: **{amount_str} 🪙**\n"
-            f"🎮 Камень · Ножницы · Бумага\n━━━━━━━━━━━━━━━━━━━━\n"
+            f"🎮 Камень · Ножницы · Бумага\n"
             f"Напиши `принять` или нажми кнопку.\nУ тебя **2 минуты**.",
             reply_markup=kb, parse_mode="Markdown")
     except Exception:
@@ -809,7 +824,7 @@ def admin_panel(message):
     kb.add(InlineKeyboardButton("👑 Выдать статус", callback_data="adm_setstatus"), InlineKeyboardButton("🗑 Обнулить игрока", callback_data="adm_reset"))
     kb.add(InlineKeyboardButton("🎁 Создать промо", callback_data="adm_promo"), InlineKeyboardButton("❌ Удалить промо", callback_data="adm_delpromo"))
     kb.add(InlineKeyboardButton("📢 Рассылка", callback_data="adm_broadcast"))
-    bot.reply_to(message, "⚙️ **АДМИН-ПАНЕЛЬ**\n━━━━━━━━━━━━━━━━━━━━\nВыберите действие:", reply_markup=kb, parse_mode="Markdown")
+    bot.reply_to(message, "⚙️ **АДМИН-ПАНЕЛЬ**\nВыберите действие:", reply_markup=kb, parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("adm_"))
 def admin_callbacks(call):
@@ -817,7 +832,7 @@ def admin_callbacks(call):
     act = call.data.split("_")[1]
     if act == "stats":
         total_players = len(data["players"]); total_money = sum(p.get("balance", 0) for p in data["players"].values()); total_clans = len(data["clans"])
-        text = f"📊 **СТАТИСТИКА**\n━━━━━━━━━━━━━━━━━━━━\n👥 Игроков: {total_players}\n💰 Общий баланс: {total_money} 🪙\n🛡 Кланов: {total_clans}"
+        text = f"📊 **СТАТИСТИКА**\n👥 Игроков: {total_players}\n💰 Общий баланс: {total_money} 🪙\n🛡 Кланов: {total_clans}"
         bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("⬅️ Назад", callback_data="adm_back")), parse_mode="Markdown")
     elif act == "give":
         msg = bot.send_message(call.message.chat.id, "Введите `ID СУММА` (например: `3 5000`):"); bot.register_next_step_handler(msg, admin_give_step); bot.answer_callback_query(call.id)
@@ -1020,7 +1035,7 @@ def my_clan_info(message):
 def top_clans(message):
     clans = sorted(data["clans"].items(), key=lambda x: x[1].get("treasury", 0), reverse=True)[:10]
     if not clans: return bot.reply_to(message, "❌ Нет кланов.")
-    text = "🏆 **ТОП КЛАНОВ**\n━━━━━━━━━━━━━━━━━━━━\n" + "".join([f"{i}. {c.get('name')} — {c.get('treasury', 0)} 🪙\n" for i, (cid, c) in enumerate(clans, 1)])
+    text = "🏆 **ТОП КЛАНОВ**\n" + "".join([f"{i}. {c.get('name')} — {c.get('treasury', 0)} 🪙\n" for i, (cid, c) in enumerate(clans, 1)])
     bot.reply_to(message, text, parse_mode="Markdown")
 
 @bot.message_handler(func=lambda m: m.text and m.text.lower().startswith("клан казна"))
@@ -1328,7 +1343,7 @@ def my_business(message):
     uid = str(message.from_user.id); p = data["players"].get(uid, {}); t = p.get("biz_territory", 0)
     if t == 0:
         kb = InlineKeyboardMarkup().add(InlineKeyboardButton("🏗 Открыть свой бизнес · 3 000 🪙", callback_data="biz_build"))
-        return bot.reply_to(message, f"🏢 **ТВОЙ БИЗНЕС**\n━━━━━━━━━━━━━━━━━━━━\nУ тебя пока нет предприятия.\n\n🏗 Построй первый уровень территории за **{BIZ_TERRITORY_COST[0]:,} 🪙**, чтобы начать получать доход.", reply_markup=kb, parse_mode="Markdown")
+        return bot.reply_to(message, f"🏢 **ТВОЙ БИЗНЕС**\nУ тебя пока нет предприятия.\n\n🏗 Построй первый уровень территории за **{BIZ_TERRITORY_COST[0]:,} 🪙**, чтобы начать получать доход.", reply_markup=kb, parse_mode="Markdown")
     show_biz_menu(message.chat.id, uid, None)
 
 def calc_biz_income(t, b):
@@ -1344,14 +1359,14 @@ def show_biz_menu(chat_id, uid, msg_id):
     next_terr = BIZ_TERRITORY_COST.get(t, "MAX")
     next_build = BIZ_BUILDING_COST.get(b, "MAX")
     text = (f"🏢 **МОЙ БИЗНЕС**\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f""
             f"📍 **Территория:** {t} ур.  ·  Следующее: **{next_terr} 🪙**\n"
             f"🏗 **Здание:** {b} ур.  ·  Следующее: **{next_build} 🪙**\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f""
             f"📈 Доход: **{inc:,} 🪙 / час**\n"
             f"💰 Накоплено: **{earned:,} 🪙**\n"
             f"🧾 Налог к оплате: **{tax:,} 🪙**\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f""
             f"💡 Собирай доход и своевременно оплачивай налоги.")
     kb = InlineKeyboardMarkup(row_width=2)
     kb.add(InlineKeyboardButton("💰 Собрать доход", callback_data="biz_collect"),
@@ -1466,16 +1481,16 @@ def bank_info(message):
 
     text = (
         "🏦 **ВАШ БАНКОВСКИЙ СЧЁТ**\n"
-        "━━━━━━━━━━━━━━━━━━━━\n"
+        ""
         f"👤 **Владелец:** {owner}\n"
         f"🪪 **Статус:** {status_label}\n"
-        "━━━━━━━━━━━━━━━━━━━━\n"
+        ""
         f"💰 **Деньги в банке:** {money_fmt(bank_money)} 🪙\n"
         f"📊 **Процент по депозиту:** {rate * 100:.0f}% в день\n"
         f"🧾 **Налог на снятие:** {BANK_WITHDRAW_TAX * 100:.1f}%\n"
-        "━━━━━━━━━━━━━━━━━━━━\n"
+        ""
         f"{deposit_line}\n"
-        "━━━━━━━━━━━━━━━━━━━━\n"
+        ""
         "📌 **Команды банка**\n"
         "➕ `банк положить СУММА` — внести деньги на счёт.\n"
         "➖ `банк снять СУММА` — снять деньги со счёта.\n"
@@ -1595,7 +1610,7 @@ def dep_wd(message):
         f"💰 Первоначальный вклад: {money_fmt(principal)} 🪙\n"
         f"📈 Проценты ({rate * 100:.0f}% × {elapsed_days} дн.): +{money_fmt(interest)} 🪙\n"
         f"🧾 Налог на снятие (2.5%): −{money_fmt(tax)} 🪙\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f""
         f"💎 **Зачислено на баланс: {money_fmt(received)} 🪙**",
         parse_mode="Markdown"
     )
@@ -1659,7 +1674,7 @@ def quests_menu(message):
         register_user(message.from_user)
     ensure_daily_quests(uid)
     q = data["players"][uid].get("quests", {})
-    text = "📜 Ежедневные задания\n━━━━━━━━━━━━━━━━━━━━\n"
+    text = "📜 Ежедневные задания\n"
     for key, info in q.items():
         if info.get("done"):
             mark = "✅" if not info.get("claimed") else "🎁"
@@ -1764,11 +1779,11 @@ def report_cmd(message):
     save_data()
     text = (
         f"🚨 ЖАЛОБА #{report['id']}\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f""
         f"От: {get_nick(uid)} ({get_user_short_id(uid)})\n"
         f"TG ID: {uid}"
         f"{target_info}\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f""
         f"📝 {reason}"
     )
     sent = 0
