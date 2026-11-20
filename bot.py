@@ -133,11 +133,9 @@ def get_user_by_username(uname):
     return None
 
 def get_win_multiplier(uid):
+    """Бонус к игровому выигрышу по статусу: VIP +3%, Premium +6%, Ultra +10%."""
     status = data["players"].get(str(uid), {}).get("donate_status", "Нет")
-    if status == "VIP": return 1.05
-    if status == "Premium": return 1.15
-    if status == "Ultra": return 1.25
-    return 1.0
+    return {"VIP": 1.03, "Premium": 1.06, "Ultra": 1.10}.get(status, 1.0)
 
 def add_balance(uid, amt):
     uid = str(uid)
@@ -163,37 +161,24 @@ def register_user_by_id(uid):
 def start(message):
     register_user(message.from_user)
     uid = str(message.from_user.id)
-
-    # Ссылка Telegram для добавления бота в группу.
-    bot_username = bot.get_me().username
-    add_to_group_url = f"https://t.me/{bot_username}?startgroup=true"
-
-    # Две основные кнопки под приветственным сообщением.
     kb = InlineKeyboardMarkup(row_width=2)
-    kb.add(
-        InlineKeyboardButton("➕ Добавить бота в чат", url=add_to_group_url),
-        InlineKeyboardButton("📚 Помощь", callback_data="home_help")
-    )
-
-    bot.send_message(
-        message.chat.id,
-        f"🌟 **MON1 GAME RPG**\\n"
-        f"━━━━━━━━━━━━━━━━━━━━\\n"
-        f"👋 Рад видеть тебя, **{get_nick(message.from_user.id)}**!\\n\\n"
-        f"💰 **Твой баланс:** `{get_balance(uid):,} 🪙`\\n"
-        f"🆔 **Игровой ID:** `{data['players'][uid].get('short_id', '—')}`\\n\\n"
-        f"🎮 Добро пожаловать в игровой мир!\\n"
-        f"Зарабатывай монеты, выполняй задания,\\n"
-        f"развивай бизнес и создавай свой клан.\\n\\n"
-        f"🎁 Ежедневный бонус — команда `бонус`.\\n\\n"
-        f"━━━━━━━━━━━━━━━━━━━━\\n"
-        f"🌐 **Наши сообщества:**\\n"
-        f"📢 [Канал новостей](https://t.me/mon1bots)\\n"
-        f"💬 [Общий чат](https://t.me/mon1not)\\n\\n"
-        f"👇 **Выбери действие ниже:**",
-        reply_markup=kb,
-        parse_mode="Markdown"
-    )
+    kb.add(InlineKeyboardButton("💳 Мой баланс", callback_data="home_balance"),
+           InlineKeyboardButton("🏢 Мой бизнес", callback_data="home_business"))
+    kb.add(InlineKeyboardButton("🎯 Задания", callback_data="home_quests"),
+           InlineKeyboardButton("📚 Как играть", callback_data="home_help"))
+    kb.add(InlineKeyboardButton("🧑‍🚀 Профиль", callback_data="home_profile"),
+           InlineKeyboardButton("🛡 Мой клан", callback_data="home_clan"))
+    bot.send_message(message.chat.id,
+        f"🌟 **MON1 GAME RPG**\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"👋 Рад видеть тебя, **{get_nick(message.from_user.id)}**!\n\n"
+        f"💰 **Твой баланс:** `{get_balance(uid):,} 🪙`\n"
+        f"🆔 **Игровой ID:** `{data['players'][uid].get('short_id', '—')}`\n\n"
+        f"🎮 Добро пожаловать в игровой мир!\n"
+        f"Зарабатывай монеты, выполняй задания,\n"
+        f"развивай бизнес и создавай свой клан.\n\n"
+        f"👇 **Выбери раздел, чтобы начать:**",
+        reply_markup=kb, parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("home_"))
 def home_callbacks(call):
@@ -220,7 +205,7 @@ def home_callbacks(call):
     elif action == "help":
         bot.answer_callback_query(call.id)
         bot.send_message(call.message.chat.id,
-            "📚 **ЦЕНТР ПОМОЩИ**\\nВыбери раздел:", reply_markup=help_keyboard(), parse_mode="Markdown")
+            "📚 **ЦЕНТР ПОМОЩИ**\nВыбери раздел:", reply_markup=help_keyboard(), parse_mode="Markdown")
     elif action == "profile":
         bot.answer_callback_query(call.id, "Открой профиль командой «профиль».", show_alert=True)
     elif action == "clan":
@@ -299,7 +284,7 @@ def help_callbacks(call):
         "donate": "💎 **ЗВЁЗДЫ И СТАТУСЫ**\n━━━━━━━━━━━━━━━━━━━━\n"
                   "Здесь можно посмотреть дополнительные варианты поддержки проекта.\n\n"
                   "⭐ `донат` — открыть меню пополнения игрового баланса.\n"
-                  "💠 `донат статус` — посмотреть доступные статусы.\n"
+                  "💠 `статусы` — посмотреть привилегии и купить статус.\n"
                   "👑 `мой статус` — проверить свой текущий статус.\n\n"
                   "ℹ️ Покупки необязательны: основные игровые разделы доступны всем игрокам."
     }
@@ -369,47 +354,86 @@ def process_pre_checkout_query(pre_checkout_query):
 @bot.message_handler(content_types=['successful_payment'])
 def got_payment(message):
     payload = message.successful_payment.invoice_payload
+    uid = str(message.from_user.id)
+    if uid not in data["players"]:
+        register_user(message.from_user)
+
     if payload.startswith("status_"):
-        status = payload.split("_")[1]
-        uid = str(message.from_user.id)
-        if uid not in data["players"]: register_user(message.from_user)
+        status = payload.split("_", 1)[1]
+        if status not in ("VIP", "Premium", "Ultra"):
+            return bot.send_message(message.chat.id, "❌ Неизвестный статус.")
         data["players"][uid]["donate_status"] = status
         save_data()
-        bot.send_message(message.chat.id, f"🎉 **ОПЛАТА УСПЕШНА!**\n━━━━━━━━━━━━━━━━━━━━\nВы получили статус **{status}**!", parse_mode="Markdown")
-        return
+        return bot.send_message(
+            message.chat.id,
+            f"🎉 **ПОКУПКА УСПЕШНА!**\n━━━━━━━━━━━━━━━━━━━━\n"
+            f"💎 Получен статус: **{status}**\n"
+            f"Открой команду `статусы`, чтобы посмотреть привилегии.",
+            parse_mode="Markdown"
+        )
 
-    stars = int(payload.split("_")[1])
-    coins = stars * 1000
-    uid = str(message.from_user.id)
-    if uid not in data["players"]: register_user(message.from_user)
-    add_balance(uid, coins)
-
-    current_status = data["players"][uid].get("donate_status", "Нет")
-    if stars >= 750 and current_status != "Ultra": data["players"][uid]["donate_status"] = "Ultra"; bot.send_message(message.chat.id, f"🎉 **ОПЛАТА УСПЕШНА!**\n━━━━━━━━━━━━━━━━━━━━\nВы получили **{coins} 🪙** и статус **Ultra**!", parse_mode="Markdown")
-    elif stars >= 450 and current_status not in ["Premium", "Ultra"]: data["players"][uid]["donate_status"] = "Premium"; bot.send_message(message.chat.id, f"🎉 **ОПЛАТА УСПЕШНА!**\n━━━━━━━━━━━━━━━━━━━━\nВы получили **{coins} 🪙** и статус **Premium**!", parse_mode="Markdown")
-    elif stars >= 200 and current_status not in ["VIP", "Premium", "Ultra"]: data["players"][uid]["donate_status"] = "VIP"; bot.send_message(message.chat.id, f"🎉 **ОПЛАТА УСПЕШНА!**\n━━━━━━━━━━━━━━━━━━━━\nВы получили **{coins} 🪙** и статус **VIP**!", parse_mode="Markdown")
-    else: bot.send_message(message.chat.id, f"🎉 **ОПЛАТА УСПЕШНА!**\n━━━━━━━━━━━━━━━━━━━━\nВы получили **{coins} 🪙**.", parse_mode="Markdown")
-    save_data()
+    if payload.startswith("pay_"):
+        try:
+            stars = int(payload.split("_", 1)[1])
+        except (ValueError, IndexError):
+            return bot.send_message(message.chat.id, "❌ Не удалось обработать платёж.")
+        coins = stars * 1000
+        add_balance(uid, coins)
+        bot.send_message(
+            message.chat.id,
+            f"🎉 **ОПЛАТА УСПЕШНА!**\n━━━━━━━━━━━━━━━━━━━━\n"
+            f"💰 На баланс зачислено: **{coins:,} 🪙**",
+            parse_mode="Markdown"
+        )
 
 @bot.message_handler(commands=['donate_status'])
-@bot.message_handler(func=lambda m: m.text and m.text.lower().strip() == 'донат статус')
+@bot.message_handler(func=lambda m: m.text and m.text.lower().strip() in ('донат статус', 'статусы'))
 def donate_status_menu(message):
-    text = "💎 **ДОНАТ-СТАТУСЫ**\n━━━━━━━━━━━━━━━━━━━━\n👑 **VIP** (200 ⭐) — +5% к выигрышу\n💎 **Premium** (450 ⭐) — +15% к выигрышу\n⚡ **Ultra** (750 ⭐) — +25% к выигрышу + просмотр профилей"
+    text = (
+        "💎 **СТАТУСЫ MON1 GAME**\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "👑 **VIP — 100 ⭐**\n"
+        "🏦 Депозит: **12% в день**\n"
+        "🎮 Бонус к выигрышу: **+3%**\n\n"
+        "💠 **PREMIUM — 200 ⭐**\n"
+        "🏦 Депозит: **15% в день**\n"
+        "🎮 Бонус к выигрышу: **+6%**\n\n"
+        "⚡ **ULTRA — 300 ⭐**\n"
+        "🏦 Депозит: **20% в день**\n"
+        "🎮 Бонус к выигрышу: **+10%**\n"
+        "🆔 Просмотр ID других игроков\n"
+        "👤 Просмотр чужого профиля командой `профиль ID`\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "📌 Процент к выигрышу начисляется только на игровой выигрыш. "
+        "У статусов нет прежних бонусов +5%, +15% и +25%."
+    )
     kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton("👑 VIP (200 ⭐)", callback_data="buy_status_VIP"))
-    kb.add(InlineKeyboardButton("💎 Premium (450 ⭐)", callback_data="buy_status_Premium"))
-    kb.add(InlineKeyboardButton("⚡ Ultra (750 ⭐)", callback_data="buy_status_Ultra"))
+    kb.add(InlineKeyboardButton("👑 Купить VIP · 100 ⭐", callback_data="buy_status_VIP"))
+    kb.add(InlineKeyboardButton("💠 Купить Premium · 200 ⭐", callback_data="buy_status_Premium"))
+    kb.add(InlineKeyboardButton("⚡ Купить Ultra · 300 ⭐", callback_data="buy_status_Ultra"))
     bot.reply_to(message, text, reply_markup=kb, parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("buy_status_"))
 def buy_status(call):
-    status = call.data.split("_")[2]
-    stars = {"VIP": 200, "Premium": 450, "Ultra": 750}[status]
+    status = call.data.split("_", 2)[2]
+    prices_by_status = {"VIP": 100, "Premium": 200, "Ultra": 300}
+    stars = prices_by_status.get(status)
+    if not stars:
+        return bot.answer_callback_query(call.id, "Неизвестный статус.", show_alert=True)
     prices = [LabeledPrice(label=f"Статус {status}", amount=stars)]
     try:
-        bot.send_invoice(chat_id=call.message.chat.id, title=f"Покупка статуса {status}", description=f"Вы получите статус {status}.", invoice_payload=f"status_{status}", provider_token="", currency="XTR", prices=prices)
-        bot.answer_callback_query(call.id, "✅ Счет выставлен!")
-    except Exception as e: bot.answer_callback_query(call.id, f"Ошибка: {e}", show_alert=True)
+        bot.send_invoice(
+            chat_id=call.message.chat.id,
+            title=f"Статус {status}",
+            description=f"Покупка статуса {status} в MON1 GAME RPG.",
+            invoice_payload=f"status_{status}",
+            provider_token="",
+            currency="XTR",
+            prices=prices
+        )
+        bot.answer_callback_query(call.id, "⭐ Счёт на оплату выставлен!")
+    except Exception as e:
+        bot.answer_callback_query(call.id, f"Ошибка выставления счёта: {e}", show_alert=True)
 
 @bot.message_handler(func=lambda m: m.text and m.text.lower().strip() == "мой статус")
 def my_status(message):
@@ -449,33 +473,47 @@ def change_nick(message):
         bot.reply_to(message, f"✅ **НИК ИЗМЕНЕН**\n━━━━━━━━━━━━━━━━━━━━\nНовый ник: **{new_nick}**", parse_mode="Markdown")
     except: bot.reply_to(message, "❌ `сменить ник НОВЫЙ_НИК`")
 
-@bot.message_handler(func=lambda m: m.text and m.text.lower().strip() == 'профиль')
+@bot.message_handler(func=lambda m: m.text and (m.text.lower().strip() == "профиль" or m.text.lower().strip().startswith("профиль ")))
 def profile_command(message):
     uid = str(message.from_user.id)
     target_uid = uid
-    if message.reply_to_message:
-        target_uid = str(message.reply_to_message.from_user.id)
+    parts = message.text.strip().split(maxsplit=1)
+
+    if len(parts) > 1:
         caller_status = data["players"].get(uid, {}).get("donate_status", "Нет")
         if uid not in [str(a) for a in ADMIN_IDS] and caller_status != "Ultra":
-            return bot.reply_to(message, "❌ **ДОСТУП ЗАПРЕЩЕН**\nСмотреть чужой профиль могут только админы и Ultra.", parse_mode="Markdown")
-    if target_uid not in data["players"]: register_user_by_id(target_uid)
+            return bot.reply_to(message, "❌ Смотреть чужие профили могут только администраторы и Ultra.", parse_mode="Markdown")
+        target_uid = get_user_by_short_id(parts[1].strip())
+        if not target_uid:
+            return bot.reply_to(message, "❌ Игрок с таким ID не найден.")
+    elif message.reply_to_message:
+        caller_status = data["players"].get(uid, {}).get("donate_status", "Нет")
+        if uid not in [str(a) for a in ADMIN_IDS] and caller_status != "Ultra":
+            return bot.reply_to(message, "❌ Смотреть чужие профили могут только администраторы и Ultra.", parse_mode="Markdown")
+        target_uid = str(message.reply_to_message.from_user.id)
+
+    if target_uid not in data["players"]:
+        return bot.reply_to(message, "❌ Игрок не найден.")
     p = data["players"][target_uid]
     clan_name = "Нет"
     if p.get("clan_id"):
         clan = data["clans"].get(str(p["clan_id"]))
-        if clan: clan_name = clan.get("name", "Нет")
-    text = (f"👤 **ПРОФИЛЬ ИГРОКА**\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"🆔 ID: `{p.get('short_id', '?')}`\n"
-            f"👤 Ник: {p.get('username', '?')}\n"
-            f"💎 Статус: {p.get('donate_status', 'Нет')}\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"💰 Баланс: {p.get('balance', 0)} 🪙\n"
-            f"🏦 Банк: {p.get('bank', 0)} 🪙\n"
-            f"💎 Депозит: {p.get('deposit', 0)} 🪙\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"🛡 Клан: {clan_name}\n"
-            f"🏢 Бизнес: {p.get('biz_territory', 0)} м²")
+        if clan:
+            clan_name = clan.get("name", "Нет")
+    text = (
+        "👤 **ПРОФИЛЬ ИГРОКА**\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        f"🆔 ID: `{p.get('short_id', '?')}`\n"
+        f"👤 Ник: {p.get('username', '?')}\n"
+        f"💎 Статус: {p.get('donate_status', 'Нет')}\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        f"💰 Баланс: {money_fmt(p.get('balance', 0))} 🪙\n"
+        f"🏦 Банк: {money_fmt(p.get('bank', 0))} 🪙\n"
+        f"💎 Депозит: {money_fmt(p.get('deposit', 0))} 🪙\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        f"🛡 Клан: {clan_name}\n"
+        f"🏢 Бизнес: {p.get('biz_territory', 0)} м²"
+    )
     bot.reply_to(message, text, parse_mode="Markdown")
 
 @bot.message_handler(func=lambda m: m.text and m.text.lower().strip() in ["топ", "топ игроков", "/top"])
@@ -1370,49 +1408,197 @@ def biz_callback(call):
         add_balance(uid, -tax); data["players"][uid]["biz_tax"] = 0; save_data()
         bot.answer_callback_query(call.id, "✅ Оплачено!"); show_biz_menu(call.message.chat.id, uid, call.message.message_id)
 
+BANK_TERM_SECONDS = 3 * 86400
+BANK_WITHDRAW_TAX = 0.025
+BANK_DAILY_RATES = {"VIP": 0.12, "Premium": 0.15, "Ultra": 0.20}
+
+def bank_daily_rate(player):
+    status = player.get("donate_status", "Нет")
+    if status in BANK_DAILY_RATES:
+        return BANK_DAILY_RATES[status]
+    return 0.10
+
+def money_fmt(value):
+    return f"{int(value):,}".replace(",", " ")
+
+def bank_deposit_snapshot(player, now=None):
+    now = int(now or time.time())
+    principal = int(player.get("deposit", 0) or 0)
+    started = int(player.get("deposit_start", 0) or 0)
+    if principal <= 0 or started <= 0:
+        return 0, 0, 0
+    rate = float(player.get("deposit_rate", bank_daily_rate(player)))
+    elapsed_days = max(0, (now - started) // 86400)
+    interest = int(principal * rate * elapsed_days)
+    total = principal + interest
+    available_at = started + BANK_TERM_SECONDS
+    return interest, total, available_at
+
 @bot.message_handler(func=lambda m: m.text and m.text.lower().strip() == "банк")
 def bank_info(message):
-    uid = str(message.from_user.id); p = data["players"].get(uid, {}); b = p.get("bank", 0); d = p.get("deposit", 0); ds = p.get("deposit_start", 0); now = int(time.time()); cd = 3 * 86400
-    st = "Нет" if d == 0 else (f"✅ {d} 🪙 (Можно снять)" if now - ds >= cd else f"⏳ {d} 🪙 ({(cd - (now - ds))//3600} ч.)")
-    msg = f"🏦 **БАНК**\n💰 Счет: {b} 🪙\n💎 Депозит: {st}\n📈 10% (раз в 3 дня)\n\n`банк положить СУММА` / `банк снять СУММА`\n`депозит положить СУММА` / `депозит снять`"
-    bot.reply_to(message, msg, parse_mode="Markdown")
+    uid = str(message.from_user.id)
+    if uid not in data["players"]:
+        register_user(message.from_user)
+    p = data["players"][uid]
+    now = int(time.time())
+    bank_money = int(p.get("bank", 0) or 0)
+    deposit = int(p.get("deposit", 0) or 0)
+    rate = float(p.get("deposit_rate", bank_daily_rate(p)))
+    interest, projected_total, available_at = bank_deposit_snapshot(p, now)
+
+    if uid in [str(x) for x in ADMIN_IDS]:
+        status_label = "Администратор"
+    else:
+        status_label = p.get("donate_status", "Нет статуса")
+        if status_label == "Нет":
+            status_label = "Обычный игрок"
+
+    owner = p.get("username") or message.from_user.first_name or "Игрок"
+    if deposit > 0:
+        withdraw_date = time.strftime("%d.%m.%y в %H:%M:%S", time.localtime(available_at))
+        deposit_line = (
+            f"💎 **Под депозитом:** {money_fmt(projected_total)} 🪙\n"
+            f"📈 Начислено процентов: +{money_fmt(interest)} 🪙\n"
+            f"📅 **Можно снять:** {withdraw_date}"
+        )
+    else:
+        deposit_line = "💎 **Под депозитом:** 0 🪙\n📅 Действующий депозит отсутствует."
+
+    text = (
+        "🏦 **ВАШ БАНКОВСКИЙ СЧЁТ**\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        f"👤 **Владелец:** {owner}\n"
+        f"🪪 **Статус:** {status_label}\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        f"💰 **Деньги в банке:** {money_fmt(bank_money)} 🪙\n"
+        f"📊 **Процент по депозиту:** {rate * 100:.0f}% в день\n"
+        f"🧾 **Налог на снятие:** {BANK_WITHDRAW_TAX * 100:.1f}%\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        f"{deposit_line}\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "📌 **Команды банка**\n"
+        "➕ `банк положить СУММА` — внести деньги на счёт.\n"
+        "➖ `банк снять СУММА` — снять деньги со счёта.\n"
+        "💎 `депозит положить СУММА` — открыть депозит на 3 дня.\n"
+        "💸 `депозит снять` — забрать депозит с процентами."
+    )
+    bot.reply_to(message, text, parse_mode="Markdown")
 
 @bot.message_handler(func=lambda m: m.text and m.text.lower().startswith("банк положить"))
 def bank_dep(message):
     uid = str(message.from_user.id)
+    if uid not in data["players"]:
+        register_user(message.from_user)
     try:
-        a = int(message.text.split()[2])
-        if a <= 0 or get_balance(uid) < a: return bot.reply_to(message, "❌ Мало.")
-        add_balance(uid, -a); data["players"][uid]["bank"] += a; save_data(); bot.reply_to(message, f"✅ +{a} 🪙 в банк.")
-    except: bot.reply_to(message, "❌ `банк положить 1000`")
+        parts = message.text.split()
+        amount = int(parts[2])
+        if amount <= 0 or get_balance(uid) < amount:
+            return bot.reply_to(message, "❌ Недостаточно средств или неверная сумма.")
+        data["players"][uid]["bank"] = int(data["players"][uid].get("bank", 0)) + amount
+        add_balance(uid, -amount)
+        save_data()
+        bot.reply_to(message, f"🏦 На банковский счёт внесено **{money_fmt(amount)} 🪙**.", parse_mode="Markdown")
+    except (ValueError, IndexError):
+        bot.reply_to(message, "ℹ️ Использование: `банк положить 1000`", parse_mode="Markdown")
 
 @bot.message_handler(func=lambda m: m.text and m.text.lower().startswith("банк снять"))
 def bank_wd(message):
     uid = str(message.from_user.id)
+    if uid not in data["players"]:
+        register_user(message.from_user)
     try:
-        a = int(message.text.split()[2])
-        if a <= 0 or data["players"][uid].get("bank", 0) < a: return bot.reply_to(message, "❌ Мало в банке.")
-        data["players"][uid]["bank"] -= a; add_balance(uid, a); save_data(); bot.reply_to(message, f"✅ -{a} 🪙 из банка.")
-    except: bot.reply_to(message, "❌ `банк снять 1000`")
+        parts = message.text.split()
+        amount = int(parts[2])
+        p = data["players"][uid]
+        if amount <= 0 or int(p.get("bank", 0)) < amount:
+            return bot.reply_to(message, "❌ Недостаточно денег на банковском счёте.")
+        tax = int(amount * BANK_WITHDRAW_TAX)
+        received = amount - tax
+        p["bank"] = int(p.get("bank", 0)) - amount
+        add_balance(uid, received)
+        save_data()
+        bot.reply_to(
+            message,
+            f"💸 **СНЯТИЕ СО СЧЁТА**\n"
+            f"🏦 Снято: {money_fmt(amount)} 🪙\n"
+            f"🧾 Налог (2.5%): {money_fmt(tax)} 🪙\n"
+            f"💰 Получено: **{money_fmt(received)} 🪙**",
+            parse_mode="Markdown"
+        )
+    except (ValueError, IndexError):
+        bot.reply_to(message, "ℹ️ Использование: `банк снять 1000`", parse_mode="Markdown")
 
 @bot.message_handler(func=lambda m: m.text and m.text.lower().startswith("депозит положить"))
 def dep_make(message):
-    uid = str(message.from_user.id); p = data["players"].get(uid, {})
+    uid = str(message.from_user.id)
+    if uid not in data["players"]:
+        register_user(message.from_user)
+    p = data["players"][uid]
     try:
-        a = int(message.text.split()[2])
-        if a <= 0 or get_balance(uid) < a: return bot.reply_to(message, "❌ Мало.")
-        if p.get("deposit", 0) > 0 and (int(time.time()) - p.get("deposit_start", 0) < 3 * 86400): return bot.reply_to(message, "❌ Уже есть депозит.")
-        add_balance(uid, -a); data["players"][uid]["deposit"] = a; data["players"][uid]["deposit_start"] = int(time.time()); save_data()
-        bot.reply_to(message, f"✅ Депозит {a} 🪙 открыт."); complete_quest(uid, "Открыть депозит")
-    except: bot.reply_to(message, "❌ `депозит положить 1000`")
+        amount = int(message.text.split()[2])
+        if amount <= 0 or get_balance(uid) < amount:
+            return bot.reply_to(message, "❌ Недостаточно средств или неверная сумма.")
+        if int(p.get("deposit", 0)) > 0:
+            return bot.reply_to(message, "⏳ У вас уже открыт депозит. Сначала дождитесь даты снятия.")
+        rate = bank_daily_rate(p)
+        add_balance(uid, -amount)
+        p["deposit"] = amount
+        p["deposit_start"] = int(time.time())
+        p["deposit_rate"] = rate
+        save_data()
+        complete_quest(uid, "Открыть депозит")
+        bot.reply_to(
+            message,
+            f"💎 **ДЕПОЗИТ ОТКРЫТ**\n"
+            f"💰 Вклад: {money_fmt(amount)} 🪙\n"
+            f"📈 Ставка: {rate * 100:.0f}% в день\n"
+            f"📅 Срок: 3 дня\n"
+            f"🏦 Откройте `банк`, чтобы увидеть дату снятия.",
+            parse_mode="Markdown"
+        )
+    except (ValueError, IndexError):
+        bot.reply_to(message, "ℹ️ Использование: `депозит положить 1000`", parse_mode="Markdown")
 
 @bot.message_handler(func=lambda m: m.text and m.text.lower().strip() == "депозит снять")
 def dep_wd(message):
-    uid = str(message.from_user.id); p = data["players"].get(uid, {}); d = p.get("deposit", 0); ds = p.get("deposit_start", 0)
-    if d <= 0: return bot.reply_to(message, "❌ Нет депозита.")
-    if int(time.time()) - ds < 3 * 86400: return bot.reply_to(message, f"⏳ Ждать {(3 * 86400 - (int(time.time()) - ds))//3600} ч.")
-    i = int(d * 0.1); add_balance(uid, d + i); data["players"][uid]["deposit"] = 0; data["players"][uid]["deposit_start"] = 0; save_data()
-    bot.reply_to(message, f"🏦 **Депозит закрыт!**\nВклад: {d} 🪙\nПроценты: +{i} 🪙\nИтого: **{d + i} 🪙**", parse_mode="Markdown")
+    uid = str(message.from_user.id)
+    p = data["players"].get(uid, {})
+    principal = int(p.get("deposit", 0) or 0)
+    started = int(p.get("deposit_start", 0) or 0)
+    now = int(time.time())
+    if principal <= 0 or started <= 0:
+        return bot.reply_to(message, "❌ У вас нет активного депозита.")
+    available_at = started + BANK_TERM_SECONDS
+    if now < available_at:
+        remaining = available_at - now
+        return bot.reply_to(
+            message,
+            f"⏳ **ДЕПОЗИТ ЕЩЁ ЗАКРЫТ**\n"
+            f"📅 Снять можно: {time.strftime('%d.%m.%y в %H:%M:%S', time.localtime(available_at))}\n"
+            f"⌛ Осталось: {remaining // 86400} дн. {(remaining % 86400) // 3600} ч.",
+            parse_mode="Markdown"
+        )
+    rate = float(p.get("deposit_rate", bank_daily_rate(p)))
+    elapsed_days = max(3, (now - started) // 86400)
+    interest = int(principal * rate * elapsed_days)
+    gross = principal + interest
+    tax = int(gross * BANK_WITHDRAW_TAX)
+    received = gross - tax
+    p["deposit"] = 0
+    p["deposit_start"] = 0
+    p.pop("deposit_rate", None)
+    add_balance(uid, received)
+    save_data()
+    bot.reply_to(
+        message,
+        f"🏦 **ДЕПОЗИТ ЗАКРЫТ**\n"
+        f"💰 Первоначальный вклад: {money_fmt(principal)} 🪙\n"
+        f"📈 Проценты ({rate * 100:.0f}% × {elapsed_days} дн.): +{money_fmt(interest)} 🪙\n"
+        f"🧾 Налог на снятие (2.5%): −{money_fmt(tax)} 🪙\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"💎 **Зачислено на баланс: {money_fmt(received)} 🪙**",
+        parse_mode="Markdown"
+    )
 
 @bot.message_handler(func=lambda m: m.text and m.text.lower().startswith("перевод"))
 def transfer(message):
