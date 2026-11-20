@@ -162,34 +162,137 @@ def register_user_by_id(uid):
 @bot.message_handler(commands=["start"])
 def start(message):
     register_user(message.from_user)
+    uid = str(message.from_user.id)
+    kb = InlineKeyboardMarkup(row_width=2)
+    kb.add(InlineKeyboardButton("💳 Мой баланс", callback_data="home_balance"),
+           InlineKeyboardButton("🏢 Мой бизнес", callback_data="home_business"))
+    kb.add(InlineKeyboardButton("🎯 Задания", callback_data="home_quests"),
+           InlineKeyboardButton("📚 Как играть", callback_data="home_help"))
+    kb.add(InlineKeyboardButton("🧑‍🚀 Профиль", callback_data="home_profile"),
+           InlineKeyboardButton("🛡 Мой клан", callback_data="home_clan"))
     bot.send_message(message.chat.id,
-        f"🎮 **MON1 GAME RPG** 🎮\n"
+        f"🌟 **MON1 GAME RPG**\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"👤 Добро пожаловать, **{get_nick(message.from_user.id)}**!\n\n"
-        f"💰 Ваш баланс: **{get_balance(message.from_user.id)} 🪙**\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"🎮 **Игры:** `слот 1000`, `мины 1000 5`, `краш 1000`, `джокер 1000`, `1000 5 12`\n"
-        f"🎁 **Бонус:** `бонус`\n"
-        f"🛡 **Кланы:** `мой клан`\n"
-        f"📖 **Помощь:** `помощь`",
-        parse_mode="Markdown")
+        f"👋 Рад видеть тебя, **{get_nick(message.from_user.id)}**!\n\n"
+        f"💰 **Твой баланс:** `{get_balance(uid):,} 🪙`\n"
+        f"🆔 **Игровой ID:** `{data['players'][uid].get('short_id', '—')}`\n\n"
+        f"🎮 Добро пожаловать в игровой мир!\n"
+        f"Зарабатывай монеты, выполняй задания,\n"
+        f"развивай бизнес и создавай свой клан.\n\n"
+        f"👇 **Выбери раздел, чтобы начать:**",
+        reply_markup=kb, parse_mode="Markdown")
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("home_"))
+def home_callbacks(call):
+    action = call.data[5:]
+    uid = str(call.from_user.id)
+    if uid not in data["players"]:
+        register_user(call.from_user)
+    if action == "balance":
+        bot.answer_callback_query(call.id, f"Баланс: {get_balance(uid):,} 🪙", show_alert=True)
+    elif action == "business":
+        bot.answer_callback_query(call.id)
+        if data["players"].get(uid, {}).get("biz_territory", 0) == 0:
+            kb = InlineKeyboardMarkup().add(InlineKeyboardButton(
+                "🏗 Открыть свой бизнес · 3 000 🪙", callback_data="biz_build"))
+            bot.send_message(call.message.chat.id,
+                f"🏢 **ТВОЙ БИЗНЕС**\n━━━━━━━━━━━━━━━━━━━━\n"
+                f"У тебя пока нет предприятия.\n\n"
+                f"🏗 Построй первый уровень территории за **{BIZ_TERRITORY_COST[0]:,} 🪙**, "
+                f"чтобы начать получать доход.", reply_markup=kb, parse_mode="Markdown")
+        else:
+            show_biz_menu(call.message.chat.id, uid, None)
+    elif action == "quests":
+        bot.answer_callback_query(call.id, "Открой задания командой «квесты».", show_alert=True)
+    elif action == "help":
+        bot.answer_callback_query(call.id)
+        bot.send_message(call.message.chat.id,
+            "📚 **ЦЕНТР ПОМОЩИ**\\nВыбери раздел:", reply_markup=help_keyboard(), parse_mode="Markdown")
+    elif action == "profile":
+        bot.answer_callback_query(call.id, "Открой профиль командой «профиль».", show_alert=True)
+    elif action == "clan":
+        bot.answer_callback_query(call.id, "Открой раздел командой «мой клан».", show_alert=True)
+
+def help_keyboard():
+    kb = InlineKeyboardMarkup(row_width=2)
+    kb.add(InlineKeyboardButton("🎮 Игры", callback_data="help_games"),
+           InlineKeyboardButton("💰 Экономика", callback_data="help_eco"))
+    kb.add(InlineKeyboardButton("🏢 Бизнес", callback_data="help_business"),
+           InlineKeyboardButton("🛡 Кланы", callback_data="help_clans"))
+    kb.add(InlineKeyboardButton("💎 Статусы и донат", callback_data="help_donate"))
+    return kb
 
 @bot.message_handler(commands=['help'])
 @bot.message_handler(func=lambda m: m.text and m.text.lower().strip() in ['помощь', 'help'])
 def help_command(message):
-    kb = InlineKeyboardMarkup(row_width=2)
-    kb.add(InlineKeyboardButton("🎮 Игры", callback_data="help_games"), InlineKeyboardButton("💼 Экономика", callback_data="help_eco"))
-    kb.add(InlineKeyboardButton("🛡 Кланы", callback_data="help_clans"), InlineKeyboardButton("💎 Донат", callback_data="help_donate"))
-    bot.reply_to(message, "📖 **МЕНЮ ПОМОЩИ**\n━━━━━━━━━━━━━━━━━━━━\nВыберите раздел кнопками ниже:", reply_markup=kb, parse_mode="Markdown")
+    bot.reply_to(message,
+        "📚 **ПУТЕВОДИТЕЛЬ MON1 GAME**\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "Новичок? Начни с раздела «Экономика» и узнай, как получать монеты.\n\n"
+        "🎮 Игры — игровые режимы и команды.\n"
+        "💰 Экономика — баланс, бонусы, банк и переводы.\n"
+        "🏢 Бизнес — управление предприятием.\n"
+        "🛡 Кланы — создание и развитие команды.\n"
+        "💎 Статусы — Stars и дополнительные возможности.\n\n"
+        "👇 **Выбери интересующий раздел:**",
+        reply_markup=help_keyboard(), parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("help_"))
 def help_callbacks(call):
-    section = call.data.split("_")[1]
-    if section == "games": text = "🎮 **ИГРЫ**\n━━━━━━━━━━━━━━━━━━━━\n• `слот 1000` — испытание\n• `мины 1000 5` — поле (3, 5, 9 бомб)\n• `краш 1000` — растущий коэф.\n• `джокер 1000` — лесенка удачи\n• `1000 5 красное` — колесо (запуск `го`)"
-    elif section == "eco": text = "💼 **ЭКОНОМИКА**\n━━━━━━━━━━━━━━━━━━━━\n• `б` — баланс\n• `бонус` — ежедневный бонус\n• `профиль` — профиль\n• `узнать ид` — ID игрока\n• `топ` — топ-10\n• `банк` — банк\n• `мой бизнес` — бизнес\n• `квесты` — задания\n• `перевод 1000 ник`\n• `промо КОД`\n• `сменить ник НОВЫЙ_НИК`"
-    elif section == "clans": text = "🛡 **КЛАНЫ**\n━━━━━━━━━━━━━━━━━━━━\n• `создать клан ИМЯ` (10000)\n• `вступить клан ID`\n• `мой клан`\n• `выйти из клана`\n• `топ кланов`\n• `клан казна положить/снять СУММА`"
-    elif section == "donate": text = "💎 **ДОНАТ**\n━━━━━━━━━━━━━━━━━━━━\n• `донат` — пополнить\n• `донат статус` — купить статус\n• `мой статус` — узнать статус"
-    bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=call.message.reply_markup, parse_mode="Markdown")
+    section = call.data.split("_", 1)[1]
+    pages = {
+        "games": "🎮 **ИГРОВАЯ ПЛОЩАДКА**\n━━━━━━━━━━━━━━━━━━━━\n"
+                 "Здесь собраны игровые команды. Напиши команду в чат,\n"
+                 "укажи ставку и следуй подсказкам бота.\n\n"
+                 "🎰 `слот 1000` — сыграть в слоты со ставкой 1 000 монет.\n"
+                 "💣 `мины 1000 5` — открыть поле с 5 минами.\n"
+                 "🚀 `краш 1000` — следить за ростом коэффициента.\n"
+                 "🃏 `джокер 1000` — пройти раунд с выбором карт.\n"
+                 "🎡 `1000 5 12` — подготовить ставку на колесо, затем `го`.\n\n"
+                 "💡 Перед началом проверь условия раунда и размер ставки.",
+        "eco": "💰 **ЭКОНОМИКА И ПЕРСОНАЖ**\n━━━━━━━━━━━━━━━━━━━━\n"
+               "Управляй монетами, получай награды и развивай профиль.\n\n"
+               "💳 `б` — посмотреть свой баланс.\n"
+               "🎁 `бонус` — получить ежедневную награду.\n"
+               "👤 `профиль` — открыть информацию о персонаже.\n"
+               "🆔 `узнать ид` — узнать игровой ID.\n"
+               "🏆 `топ` — посмотреть рейтинг игроков.\n"
+               "🏦 `банк` — открыть банковский раздел.\n"
+               "📜 `квесты` — посмотреть задания.\n"
+               "🎁 `забрать квест` — забрать доступную награду за задание.\n"
+               "🔁 `перевод 1000 ник` — отправить монеты игроку.\n"
+               "🎟 `промо КОД` — активировать промокод.\n"
+               "✏️ `сменить ник НОВЫЙ_НИК` — изменить игровой ник.\n\n"
+               "💡 Внимательно проверяй сумму и имя получателя перед переводом.",
+        "business": "🏢 **БИЗНЕС — УПРАВЛЕНИЕ**\n━━━━━━━━━━━━━━━━━━━━\n"
+                    "Открой своё дело и получай игровой доход со временем.\n\n"
+                    "🏗 `мой бизнес` — открыть панель бизнеса.\n"
+                    "🧱 `Построить бизнес` — купить первый уровень территории за 3 000 🪙.\n"
+                    "📍 `Терр.` — расширить территорию и увеличить доход.\n"
+                    "🏢 `Здание` — улучшить здание и увеличить доход.\n"
+                    "💰 `Собрать` — забрать накопленный доход на баланс.\n"
+                    "🧾 После сбора появляется налог — его можно оплатить кнопкой `Налоги`.\n"
+                    "⏳ Доход накапливается максимум за 24 часа.\n\n"
+                    "💡 Следи за налогами: пока они не оплачены, собрать следующий доход нельзя.",
+        "clans": "🛡 **КЛАНЫ И КОМАНДА**\n━━━━━━━━━━━━━━━━━━━━\n"
+                 "Объединяйся с другими игроками и развивай свой клан.\n\n"
+                 "🏰 `создать клан ИМЯ` — создать клан за 10 000 🪙.\n"
+                 "🤝 `вступить клан ID` — вступить в существующий клан.\n"
+                 "📋 `мой клан` — посмотреть информацию о своём клане.\n"
+                 "🚪 `выйти из клана` — покинуть клан.\n"
+                 "🏆 `топ кланов` — открыть рейтинг кланов.\n"
+                 "🏦 `клан казна положить СУММА` — внести монеты в казну.\n"
+                 "💸 `клан казна снять СУММА` — запросить снятие монет (если разрешено).",
+        "donate": "💎 **ЗВЁЗДЫ И СТАТУСЫ**\n━━━━━━━━━━━━━━━━━━━━\n"
+                  "Здесь можно посмотреть дополнительные варианты поддержки проекта.\n\n"
+                  "⭐ `донат` — открыть меню пополнения игрового баланса.\n"
+                  "💠 `донат статус` — посмотреть доступные статусы.\n"
+                  "👑 `мой статус` — проверить свой текущий статус.\n\n"
+                  "ℹ️ Покупки необязательны: основные игровые разделы доступны всем игрокам."
+    }
+    text = pages.get(section, "📚 Выбери нужный раздел в меню помощи.")
+    bot.edit_message_text(text, call.message.chat.id, call.message.message_id,
+                          reply_markup=help_keyboard(), parse_mode="Markdown")
     bot.answer_callback_query(call.id)
 
 # ==================== БОНУС ====================
@@ -1173,8 +1276,8 @@ def roulette_go(message):
 def my_business(message):
     uid = str(message.from_user.id); p = data["players"].get(uid, {}); t = p.get("biz_territory", 0)
     if t == 0:
-        kb = InlineKeyboardMarkup().add(InlineKeyboardButton("🏗 Построить бизнес", callback_data="biz_build"))
-        return bot.reply_to(message, f"🏢 У вас нет бизнеса.\nНажмите кнопку ниже, чтобы купить первый уровень за {BIZ_TERRITORY_COST[0]} 🪙.", reply_markup=kb)
+        kb = InlineKeyboardMarkup().add(InlineKeyboardButton("🏗 Открыть свой бизнес · 3 000 🪙", callback_data="biz_build"))
+        return bot.reply_to(message, f"🏢 **ТВОЙ БИЗНЕС**\n━━━━━━━━━━━━━━━━━━━━\nУ тебя пока нет предприятия.\n\n🏗 Построй первый уровень территории за **{BIZ_TERRITORY_COST[0]:,} 🪙**, чтобы начать получать доход.", reply_markup=kb, parse_mode="Markdown")
     show_biz_menu(message.chat.id, uid, None)
 
 def calc_biz_income(t, b):
@@ -1189,17 +1292,21 @@ def show_biz_menu(chat_id, uid, msg_id):
     earned = int((min(int(time.time()) - p.get("biz_last_collect", int(time.time())), 86400) / 3600) * inc)
     next_terr = BIZ_TERRITORY_COST.get(t, "MAX")
     next_build = BIZ_BUILDING_COST.get(b, "MAX")
-    text = (f"🏢 **Бизнес**\n"
-            f"🧱 Территория: {t} (⬆️ {next_terr} 🪙)\n"
-            f"🏗 Здание: ур. {b} (⬆️ {next_build} 🪙)\n"
-            f"📈 Доход: **{inc} 🪙/час**\n"
-            f"💸 Налоги: {tax} 🪙\n"
-            f"💰 Накоплено: **{earned} 🪙**")
+    text = (f"🏢 **МОЙ БИЗНЕС**\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"📍 **Территория:** {t} ур.  ·  Следующее: **{next_terr} 🪙**\n"
+            f"🏗 **Здание:** {b} ур.  ·  Следующее: **{next_build} 🪙**\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"📈 Доход: **{inc:,} 🪙 / час**\n"
+            f"💰 Накоплено: **{earned:,} 🪙**\n"
+            f"🧾 Налог к оплате: **{tax:,} 🪙**\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"💡 Собирай доход и своевременно оплачивай налоги.")
     kb = InlineKeyboardMarkup(row_width=2)
-    kb.add(InlineKeyboardButton("💰 Собрать", callback_data="biz_collect"),
-           InlineKeyboardButton("🧱 Терр.", callback_data="biz_terr"),
-           InlineKeyboardButton("🏢 Здание", callback_data="biz_build_up"),
-           InlineKeyboardButton("💸 Налоги", callback_data="biz_tax"))
+    kb.add(InlineKeyboardButton("💰 Собрать доход", callback_data="biz_collect"),
+           InlineKeyboardButton("🧾 Оплатить налог", callback_data="biz_tax"))
+    kb.add(InlineKeyboardButton("📍 Расширить территорию", callback_data="biz_terr"),
+           InlineKeyboardButton("🏗 Улучшить здание", callback_data="biz_build_up"))
     if msg_id: bot.edit_message_text(text, chat_id, msg_id, reply_markup=kb, parse_mode="Markdown")
     else: bot.send_message(chat_id, text, reply_markup=kb, parse_mode="Markdown")
 
