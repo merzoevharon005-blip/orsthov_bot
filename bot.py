@@ -172,12 +172,12 @@ def start(message):
 
     bot.send_message(
         message.chat.id,
-        f"🎮 **MON1 GAME RPG**\\n"
-        f"👋 Добро пожаловать, **{get_nick(message.from_user.id)}**!\\n\\n"
-        f"🚀 Играй, развивайся, выполняй задания, открывай бизнес и создавай кланы.\\n\\n"
-        f"🌐 **Наши сообщества**\\n"
-        f"📢 [Канал новостей](https://t.me/mon1bots)\\n"
-        f"💬 [Общий чат](https://t.me/mon1not)\\n\\n"
+        f"🎮 **MON1 GAME RPG**\n"
+        f"👋 Добро пожаловать, **{get_nick(message.from_user.id)}**!\n\n"
+        f"🚀 Играй, развивайся, выполняй задания, открывай бизнес и создавай кланы.\n\n"
+        f"🌐 **Наши сообщества**\n"
+        f"📢 [Канал новостей](https://t.me/mon1bots)\n"
+        f"💬 [Общий чат](https://t.me/mon1not)\n\n"
         f"👇 Выбери действие:",
         reply_markup=kb,
         parse_mode="Markdown"
@@ -188,7 +188,7 @@ def start_help_callback(call):
     bot.answer_callback_query(call.id)
     bot.send_message(
         call.message.chat.id,
-        "📚 **ПОМОЩЬ MON1 GAME RPG**\\n"
+        "📚 **ПОМОЩЬ MON1 GAME RPG**\n"
         "Выбери нужный раздел, чтобы посмотреть команды и узнать, как ими пользоваться.",
         reply_markup=help_keyboard(),
         parse_mode="Markdown"
@@ -297,8 +297,8 @@ def help_callbacks(call):
                  "💸 `клан казна снять СУММА` — запросить снятие монет (если разрешено).",
         "donate": "💎 **ЗВЁЗДЫ И СТАТУСЫ**\n"
                   "Здесь можно посмотреть дополнительные варианты поддержки проекта.\n\n"
-                  "⭐ `донат` — открыть меню пополнения игрового баланса.\n"
-                  "💠 `статусы` — посмотреть привилегии и купить статус.\n"
+                  "⭐ `донат` — открыть меню пополнения валюты и покупки статусов.\n"
+                  "💠 `статусы` — посмотреть информацию и привилегии статусов.\n"
                   "👑 `мой статус` — проверить свой текущий статус.\n\n"
                   "ℹ️ Покупки необязательны: основные игровые разделы доступны всем игрокам."
     }
@@ -330,27 +330,73 @@ def daily_bonus(message):
 @bot.message_handler(commands=['donate'])
 @bot.message_handler(func=lambda m: m.text and m.text.lower().strip() == 'донат')
 def donate_menu(message):
-    text = "💎 **ПОПОЛНЕНИЕ БАЛАНСА**\n1 ⭐ = 1000 🪙\n\nВыберите пакет:"
+    text = (
+        "💎 **ЦЕНТР ПОПОЛНЕНИЯ MON1 GAME**\n\n"
+        "Выбери, что тебя интересует:\n\n"
+        "🪙 Пополнение игрового баланса за Telegram Stars.\n"
+        "👑 Покупка VIP, Premium или Ultra."
+    )
     kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton("25 ⭐ = 25000 🪙", callback_data="donate_pack_25"))
-    kb.add(InlineKeyboardButton("50 ⭐ = 50000 🪙", callback_data="donate_pack_50"))
-    kb.add(InlineKeyboardButton("100 ⭐ = 100000 🪙", callback_data="donate_pack_100"))
-    kb.add(InlineKeyboardButton("✏️ Ввести свою сумму", callback_data="donate_custom"))
+    kb.add(InlineKeyboardButton("🪙 Пополнить игровую валюту", callback_data="donate_currency"))
+    kb.add(InlineKeyboardButton("💎 Купить статус", callback_data="donate_status_shop"))
     bot.reply_to(message, text, reply_markup=kb, parse_mode="Markdown")
+
+@bot.callback_query_handler(func=lambda call: call.data in ("donate_currency", "donate_status_shop"))
+def donate_sections_callback(call):
+    if call.data == "donate_currency":
+        text = (
+            "🪙 **ПОПОЛНЕНИЕ ИГРОВОГО БАЛАНСА**\n\n"
+            "⭐ 1 звезда = 1 000 🪙\n\n"
+            "Выбери пакет:"
+        )
+        kb = InlineKeyboardMarkup(row_width=1)
+        kb.add(InlineKeyboardButton("25 ⭐ = 25 000 🪙", callback_data="donate_pack_25"))
+        kb.add(InlineKeyboardButton("50 ⭐ = 50 000 🪙", callback_data="donate_pack_50"))
+        kb.add(InlineKeyboardButton("100 ⭐ = 100 000 🪙", callback_data="donate_pack_100"))
+        kb.add(InlineKeyboardButton("✏️ Ввести свою сумму", callback_data="donate_custom"))
+        bot.edit_message_text(text, call.message.chat.id, call.message.message_id,
+                              reply_markup=kb, parse_mode="Markdown")
+    else:
+        text = (
+            "💎 **ВЫБЕРИ СТАТУС**\n\n"
+            "👑 VIP — 100 ⭐\n"
+            "💠 Premium — 200 ⭐\n"
+            "⚡ Ultra — 300 ⭐\n\n"
+            "Нажми на нужный статус для покупки."
+        )
+        kb = InlineKeyboardMarkup(row_width=1)
+        kb.add(InlineKeyboardButton("👑 Купить VIP · 100 ⭐", callback_data="buy_status_VIP"))
+        kb.add(InlineKeyboardButton("💠 Купить Premium · 200 ⭐", callback_data="buy_status_Premium"))
+        kb.add(InlineKeyboardButton("⚡ Купить Ultra · 300 ⭐", callback_data="buy_status_Ultra"))
+        bot.edit_message_text(text, call.message.chat.id, call.message.message_id,
+                              reply_markup=kb, parse_mode="Markdown")
+    bot.answer_callback_query(call.id)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("donate_"))
 def donate_process(call):
     if call.data == "donate_custom":
-        msg = bot.send_message(call.message.chat.id, "✏️ Введите количество звезд (от 1 до 10000):")
+        msg = bot.send_message(call.message.chat.id, "✏️ Введите количество звёзд (от 1 до 10000):")
         bot.register_next_step_handler(msg, process_custom_stars)
         return
-    stars = int(call.data.split("_")[2])
+    try:
+        stars = int(call.data.split("_")[2])
+    except (ValueError, IndexError):
+        return bot.answer_callback_query(call.id, "Неизвестный вариант пополнения.", show_alert=True)
     coins = stars * 1000
     prices = [LabeledPrice(label=f"{coins} монет", amount=stars)]
     try:
-        bot.send_invoice(chat_id=call.message.chat.id, title=f"Покупка {coins} монет", description=f"Вы получите {coins} монет на баланс.", invoice_payload=f"pay_{stars}", provider_token="", currency="XTR", prices=prices)
-        bot.answer_callback_query(call.id, "✅ Счет выставлен!")
-    except Exception as e: bot.answer_callback_query(call.id, f"Ошибка: {e}", show_alert=True)
+        bot.send_invoice(
+            chat_id=call.message.chat.id,
+            title=f"Покупка {coins} монет",
+            description=f"Вы получите {coins} монет на баланс.",
+            invoice_payload=f"pay_{stars}",
+            provider_token="",
+            currency="XTR",
+            prices=prices
+        )
+        bot.answer_callback_query(call.id, "✅ Счёт выставлен!")
+    except Exception as e:
+        bot.answer_callback_query(call.id, f"Ошибка: {e}", show_alert=True)
 
 def process_custom_stars(message):
     try:
@@ -401,32 +447,25 @@ def got_payment(message):
         )
 
 @bot.message_handler(commands=['donate_status'])
-@bot.message_handler(func=lambda m: m.text and m.text.lower().strip() in ('донат статус', 'статусы'))
+@bot.message_handler(func=lambda m: m.text and m.text.lower().strip() in ('донат статус', 'статусы', 'статус'))
 def donate_status_menu(message):
     text = (
-        "💎 **СТАТУСЫ MON1 GAME**\n"
-        ""
+        "💎 **СТАТУСЫ MON1 GAME**\n\n"
         "👑 **VIP — 100 ⭐**\n"
         "🏦 Банковский депозит: **12% в день**\n"
-        "🎮 Бонус к выигрышу: **+3%**\n\n"
+        "🎮 Бонус к игровому выигрышу: **+3%**\n\n"
         "💠 **PREMIUM — 200 ⭐**\n"
         "🏦 Банковский депозит: **15% в день**\n"
-        "🎮 Бонус к выигрышу: **+6%**\n\n"
+        "🎮 Бонус к игровому выигрышу: **+6%**\n\n"
         "⚡ **ULTRA — 300 ⭐**\n"
         "🏦 Банковский депозит: **20% в день**\n"
-        "🎮 Бонус к выигрышу: **+10%**\n"
-        "🆔 Просмотр ID других игроков\n"
-        "👤 Просмотр чужого профиля командой `профиль ID`\n"
-        ""
-        "📌 12%, 15% и 20% — это ежедневная доходность именно банковского депозита, а не шанс выигрыша.\\n"
-        "📌 Бонус +3%, +6% и +10% применяется отдельно к сумме игрового выигрыша. "
-        "У статусов нет прежних бонусов +5%, +15% и +25%."
+        "🎮 Бонус к игровому выигрышу: **+10%**\n"
+        "🆔 Команда `узнать ид` — посмотреть ID игрока.\n"
+        "👤 Команда `профиль ID` — посмотреть профиль по ID.\n\n"
+        "ℹ️ Проценты 12%, 15% и 20% начисляются ежедневно на сумму, помещённую в банковский депозит.\n"
+        "ℹ️ Бонусы +3%, +6% и +10% применяются отдельно к игровому выигрышу."
     )
-    kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton("👑 Купить VIP · 100 ⭐", callback_data="buy_status_VIP"))
-    kb.add(InlineKeyboardButton("💠 Купить Premium · 200 ⭐", callback_data="buy_status_Premium"))
-    kb.add(InlineKeyboardButton("⚡ Купить Ultra · 300 ⭐", callback_data="buy_status_Ultra"))
-    bot.reply_to(message, text, reply_markup=kb, parse_mode="Markdown")
+    bot.reply_to(message, text, parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("buy_status_"))
 def buy_status(call):
