@@ -332,17 +332,21 @@ def top_cmd(message):
     try:
         players = list(data.get("players", {}).items())
         if not players:
-            return bot.reply_to(message, "🏆 **ТОП-10 ИГРОКОВ**\n━━━━━━━━━━━━━━━━━━━━\nПока никого нет.")
+            return bot.reply_to(message, "🏆 ТОП-10 ИГРОКОВ\n━━━━━━━━━━━━━━━━━━━━\nПока никого нет.")
         sp = sorted(players, key=lambda x: int(x[1].get("balance", 0) or 0), reverse=True)[:10]
         lines = []
         for i, (u, p) in enumerate(sp, 1):
-            name = p.get("username") or "Player"
+            name = str(p.get("username") or "Player")
+            for ch in ["*", "_", "`", "[", "]", "(", ")"]:
+                name = name.replace(ch, "")
+            if not name.strip():
+                name = "Player"
             bal = int(p.get("balance", 0) or 0)
             lines.append(f"{i}. {name} — {bal} 🪙")
-        text = "🏆 **ТОП-10 ИГРОКОВ**\n━━━━━━━━━━━━━━━━━━━━\n" + "\n".join(lines)
-        bot.reply_to(message, text, parse_mode="Markdown")
+        text = "🏆 ТОП-10 ИГРОКОВ\n━━━━━━━━━━━━━━━━━━━━\n" + "\n".join(lines)
+        bot.reply_to(message, text)
     except Exception as e:
-        bot.reply_to(message, f"❌ Ошибка топа: {e}")
+        bot.reply_to(message, f"Ошибка топа: {e}")
 
 @bot.message_handler(func=lambda m: m.text and m.text.lower().strip() == "чаты")
 def chats_cmd(message):
@@ -1165,8 +1169,14 @@ def biz_callback(call):
     uid = str(call.from_user.id); act = call.data[4:]
     if act == "build":
         if get_balance(uid) < BIZ_TERRITORY_COST[0]: return bot.answer_callback_query(call.id, "❌ Мало денег!", show_alert=True)
-        add_balance(uid, -BIZ_TERRITORY_COST[0]); data["players"][uid]["biz_territory"] = 1; save_data()
-        bot.answer_callback_query(call.id, "✅ Построено!"); show_biz_menu(call.message.chat.id, uid, call.message.message_id)
+        add_balance(uid, -BIZ_TERRITORY_COST[0])
+        data["players"][uid]["biz_territory"] = 1
+        data["players"][uid]["biz_building"] = 1
+        data["players"][uid]["biz_tax"] = 0
+        data["players"][uid]["biz_last_collect"] = int(time.time())  # с нуля, без прошлого дохода
+        save_data()
+        bot.answer_callback_query(call.id, "✅ Построено!")
+        show_biz_menu(call.message.chat.id, uid, call.message.message_id)
     elif act == "collect":
         p = data["players"].get(uid, {}); t = p.get("biz_territory", 0); b = p.get("biz_building", 1); tax = p.get("biz_tax", 0)
         if tax > 0: return bot.answer_callback_query(call.id, f"❌ Оплатите налоги ({tax} 🪙)!", show_alert=True)
