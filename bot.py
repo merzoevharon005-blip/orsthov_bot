@@ -8,7 +8,7 @@ ADMIN_IDS = [8211650013, 6940877915]
 DATA_DIR = pathlib.Path("/app/data"); DATA_DIR.mkdir(parents=True, exist_ok=True)
 DATA_FILE = DATA_DIR / "database.json"
 
-data = {"players": {}, "promos": {}, "activations": [], "history": [], "clans": {}, "next_id": 1, "active_games": {}, "roulette_bets": {}, "duels": {}}
+data = {"players": {}, "promos": {}, "activations": [], "history": [], "clans": {}, "next_id": 1, "active_games": {}, "roulette_bets": {}, "duels": {}, "banned": {}, "muted": {}, "blacklist": {}}
 db_lock = threading.Lock()
 
 def load_data():
@@ -45,14 +45,43 @@ def migrate_data():
     if "duels" not in data: data["duels"] = {}
     if "promos" not in data: data["promos"] = {}
     if "activations" not in data: data["activations"] = []
+    if "banned" not in data: data["banned"] = {}
+    if "muted" not in data: data["muted"] = {}
+    if "blacklist" not in data: data["blacklist"] = {}
     if changed: save_data()
 
 migrate_data()
 bot = telebot.TeleBot(TOKEN)
 
+def is_banned_or_muted(uid):
+    uid = str(uid)
+    if uid in data.get("banned", {}):
+        return "ban"
+    mute = data.get("muted", {}).get(uid)
+    if mute:
+        until = mute.get("until", 0)
+        if until == 0 or until > int(time.time()):
+            return "mute"
+        data["muted"].pop(uid, None)
+        save_data()
+    return None
+
+# Блокировка банов/мутов — раньше остальных команд
+@bot.message_handler(func=lambda m: is_banned_or_muted(m.from_user.id) is not None, content_types=["text"])
+def block_banned_muted(message):
+    status = is_banned_or_muted(message.from_user.id)
+    if status == "ban":
+        return
+    if status == "mute":
+        try:
+            bot.reply_to(message, "🔇 Вы в муте и не можете писать.")
+        except:
+            pass
+
 MULT = {3: 1.15, 5: 1.25, 9: 1.45}
-BIZ_TERRITORY_COST = {0: 10000, 1: 50000, 2: 250000, 3: 1000000, 4: 5000000, 5: 25000000}
-BIZ_BUILDING_COST = {1: 20000, 2: 100000, 3: 500000, 4: 2000000, 5: 10000000}
+# Дешёвая прокачка бизнеса (в разумных рамках)
+BIZ_TERRITORY_COST = {0: 3000, 1: 8000, 2: 20000, 3: 50000, 4: 120000, 5: 300000}
+BIZ_BUILDING_COST = {1: 5000, 2: 15000, 3: 40000, 4: 100000, 5: 250000}
 
 def get_balance(uid): return data["players"].get(str(uid), {}).get("balance", 0)
 def get_nick(uid): return data["players"].get(str(uid), {}).get("username", "Player")
@@ -298,11 +327,22 @@ def profile_command(message):
             f"🏢 Бизнес: {p.get('biz_territory', 0)} м²")
     bot.reply_to(message, text, parse_mode="Markdown")
 
-@bot.message_handler(func=lambda m: m.text and m.text.lower().strip() in ["топ", "топ игроков"])
+@bot.message_handler(func=lambda m: m.text and m.text.lower().strip() in ["топ", "топ игроков", "/top"])
 def top_cmd(message):
-    sp = sorted(data["players"].items(), key=lambda x: x[1].get("balance", 0), reverse=True)[:10]
-    text = "🏆 **ТОП-10 ИГРОКОВ**\n━━━━━━━━━━━━━━━━━━━━\n" + "".join([f"{i}. {p.get('username', '?')} — {p.get('balance', 0)} 🪙\n" for i, (u, p) in enumerate(sp, 1)])
-    bot.reply_to(message, text, parse_mode="Markdown")
+    try:
+        players = list(data.get("players", {}).items())
+        if not players:
+            return bot.reply_to(message, "🏆 **ТОП-10 ИГРОКОВ**\n━━━━━━━━━━━━━━━━━━━━\nПока никого нет.")
+        sp = sorted(players, key=lambda x: int(x[1].get("balance", 0) or 0), reverse=True)[:10]
+        lines = []
+        for i, (u, p) in enumerate(sp, 1):
+            name = p.get("username") or "Player"
+            bal = int(p.get("balance", 0) or 0)
+            lines.append(f"{i}. {name} — {bal} 🪙")
+        text = "🏆 **ТОП-10 ИГРОКОВ**\n━━━━━━━━━━━━━━━━━━━━\n" + "\n".join(lines)
+        bot.reply_to(message, text, parse_mode="Markdown")
+    except Exception as e:
+        bot.reply_to(message, f"❌ Ошибка топа: {e}")
 
 @bot.message_handler(func=lambda m: m.text and m.text.lower().strip() == "чаты")
 def chats_cmd(message):
@@ -1094,12 +1134,29 @@ def my_business(message):
         return bot.reply_to(message, f"🏢 У вас нет бизнеса.\nНажмите кнопку ниже, чтобы купить первый уровень за {BIZ_TERRITORY_COST[0]} 🪙.", reply_markup=kb)
     show_biz_menu(message.chat.id, uid, None)
 
+def calc_biz_income(t, b):
+    """Доход в час: на 1 уровне ~1000, растёт с прокачкой"""
+    t = max(1, int(t or 1))
+    b = max(1, int(b or 1))
+    return int(1000 * t * (1 + (b - 1) * 0.6))
+
 def show_biz_menu(chat_id, uid, msg_id):
     p = data["players"].get(uid, {}); t = p.get("biz_territory", 0); b = p.get("biz_building", 1); tax = p.get("biz_tax", 0)
-    inc = (t * 100) * (1 + (b - 1) * 0.5)
+    inc = calc_biz_income(t, b)
     earned = int((min(int(time.time()) - p.get("biz_last_collect", int(time.time())), 86400) / 3600) * inc)
-    text = f"🏢 **Бизнес**\n🧱 Территория: {t} м² (⬆️ {BIZ_TERRITORY_COST.get(t, 'MAX')} 🪙)\n🏢 Здание: ур. {b} (⬆️ {BIZ_BUILDING_COST.get(b, 'MAX')} 🪙)\n📈 Доход: {int(inc)} 🪙/час\n💸 Налоги: {tax} 🪙\n💰 Накоплено: **{earned} 🪙**"
-    kb = InlineKeyboardMarkup(row_width=2).add(InlineKeyboardButton("💰 Собрать", callback_data="biz_collect"), InlineKeyboardButton("🧱 Терр.", callback_data="biz_terr"), InlineKeyboardButton("🏢 Здание", callback_data="biz_build_up"), InlineKeyboardButton("💸 Налоги", callback_data="biz_tax"))
+    next_terr = BIZ_TERRITORY_COST.get(t, "MAX")
+    next_build = BIZ_BUILDING_COST.get(b, "MAX")
+    text = (f"🏢 **Бизнес**\n"
+            f"🧱 Территория: {t} (⬆️ {next_terr} 🪙)\n"
+            f"🏗 Здание: ур. {b} (⬆️ {next_build} 🪙)\n"
+            f"📈 Доход: **{inc} 🪙/час**\n"
+            f"💸 Налоги: {tax} 🪙\n"
+            f"💰 Накоплено: **{earned} 🪙**")
+    kb = InlineKeyboardMarkup(row_width=2)
+    kb.add(InlineKeyboardButton("💰 Собрать", callback_data="biz_collect"),
+           InlineKeyboardButton("🧱 Терр.", callback_data="biz_terr"),
+           InlineKeyboardButton("🏢 Здание", callback_data="biz_build_up"),
+           InlineKeyboardButton("💸 Налоги", callback_data="biz_tax"))
     if msg_id: bot.edit_message_text(text, chat_id, msg_id, reply_markup=kb, parse_mode="Markdown")
     else: bot.send_message(chat_id, text, reply_markup=kb, parse_mode="Markdown")
 
@@ -1113,11 +1170,16 @@ def biz_callback(call):
     elif act == "collect":
         p = data["players"].get(uid, {}); t = p.get("biz_territory", 0); b = p.get("biz_building", 1); tax = p.get("biz_tax", 0)
         if tax > 0: return bot.answer_callback_query(call.id, f"❌ Оплатите налоги ({tax} 🪙)!", show_alert=True)
-        inc = (t * 100) * (1 + (b - 1) * 0.5)
+        inc = calc_biz_income(t, b)
         earned = int((min(int(time.time()) - p.get("biz_last_collect", int(time.time())), 86400) / 3600) * inc)
         if earned <= 0: return bot.answer_callback_query(call.id, "⏳ Пусто.", show_alert=True)
-        tax_o = int(inc * 0.1); data["players"][uid]["biz_tax"] = tax_o; add_balance(uid, earned); data["players"][uid]["biz_last_collect"] = int(time.time()); save_data()
-        bot.answer_callback_query(call.id, f"💰 +{earned} 🪙! Налог: {tax_o} 🪙", show_alert=True); show_biz_menu(call.message.chat.id, uid, call.message.message_id)
+        tax_o = int(inc * 0.08)
+        data["players"][uid]["biz_tax"] = tax_o
+        add_balance(uid, earned)
+        data["players"][uid]["biz_last_collect"] = int(time.time())
+        save_data()
+        bot.answer_callback_query(call.id, f"💰 +{earned} 🪙! Налог: {tax_o} 🪙", show_alert=True)
+        show_biz_menu(call.message.chat.id, uid, call.message.message_id)
     elif act == "terr":
         p = data["players"].get(uid, {}); t = p.get("biz_territory", 0)
         if t >= 5: return bot.answer_callback_query(call.id, "🧱 MAX!", show_alert=True)
@@ -1234,6 +1296,164 @@ def complete_quest(uid, quest_name):
     uid = str(uid); p = data["players"].get(uid, {})
     if "quests" in p and quest_name in p["quests"]:
         if not p["quests"][quest_name]["done"]: p["quests"][quest_name]["done"] = True; save_data()
+
+
+# ==================== РЕПОРТ / БАН / МУТ / ЧС ====================
+
+def resolve_target(raw):
+    """Найти uid по ID, short_id или @нику"""
+    raw = str(raw).strip().replace("@", "")
+    # short_id
+    try:
+        sid = int(raw)
+        uid = get_user_by_short_id(sid)
+        if uid:
+            return str(uid)
+    except:
+        pass
+    # telegram id
+    if raw.isdigit() and raw in data["players"]:
+        return raw
+    # username
+    uid = get_user_by_username(raw)
+    if uid:
+        return str(uid)
+    return None
+
+@bot.message_handler(commands=["репорт", "report"])
+def report_cmd(message):
+    uid = str(message.from_user.id)
+    if uid not in data["players"]:
+        register_user(message.from_user)
+    parts = message.text.split(maxsplit=1)
+    if len(parts) < 2:
+        return bot.reply_to(message, "❌ Формат:\n`/репорт текст жалобы`\nили ответом на сообщение: `/репорт причина`", parse_mode="Markdown")
+    reason = parts[1].strip()
+    target_info = ""
+    if message.reply_to_message:
+        t = message.reply_to_message.from_user
+        target_info = f"\n👤 На кого: {t.first_name} (@{t.username or '—'})\n🆔 TG ID: `{t.id}`"
+    text = (
+        f"🚨 **ЖАЛОБА**\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"От: **{get_nick(uid)}** (`{get_user_short_id(uid)}`)\n"
+        f"TG ID: `{uid}`"
+        f"{target_info}\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"📝 {reason}"
+    )
+    sent = 0
+    for admin_id in ADMIN_IDS:
+        try:
+            bot.send_message(admin_id, text, parse_mode="Markdown")
+            sent += 1
+        except:
+            pass
+    if sent:
+        bot.reply_to(message, "✅ Жалоба отправлена администраторам.")
+    else:
+        bot.reply_to(message, "❌ Не удалось отправить жалобу. Попробуйте позже.")
+
+@bot.message_handler(commands=["ban"])
+def ban_cmd(message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    parts = message.text.split()
+    if len(parts) < 2:
+        return bot.reply_to(message, "❌ Формат: `/ban ID/@ник [причина]`", parse_mode="Markdown")
+    target = resolve_target(parts[1])
+    if not target:
+        return bot.reply_to(message, "❌ Игрок не найден.")
+    reason = " ".join(parts[2:]) if len(parts) > 2 else "Без причины"
+    data["banned"][target] = {"reason": reason, "by": message.from_user.id, "time": int(time.time())}
+    # также в чс
+    data["blacklist"][target] = True
+    save_data()
+    bot.reply_to(message, f"🚫 Игрок **{get_nick(target)}** (`{get_user_short_id(target)}`) забанен.\nПричина: {reason}", parse_mode="Markdown")
+    try:
+        bot.send_message(int(target), f"🚫 Вы забанены.\nПричина: {reason}")
+    except:
+        pass
+
+@bot.message_handler(commands=["unban"])
+def unban_cmd(message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    parts = message.text.split()
+    if len(parts) < 2:
+        return bot.reply_to(message, "❌ Формат: `/unban ID/@ник`", parse_mode="Markdown")
+    target = resolve_target(parts[1])
+    if not target:
+        return bot.reply_to(message, "❌ Игрок не найден.")
+    data["banned"].pop(target, None)
+    data["blacklist"].pop(target, None)
+    save_data()
+    bot.reply_to(message, f"✅ Игрок **{get_nick(target)}** разбанен.", parse_mode="Markdown")
+
+@bot.message_handler(commands=["mute"])
+def mute_cmd(message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    parts = message.text.split()
+    if len(parts) < 2:
+        return bot.reply_to(message, "❌ Формат: `/mute ID/@ник [минуты]`\nБез минут — навсегда.", parse_mode="Markdown")
+    target = resolve_target(parts[1])
+    if not target:
+        return bot.reply_to(message, "❌ Игрок не найден.")
+    minutes = None
+    if len(parts) >= 3:
+        try:
+            minutes = int(parts[2])
+        except:
+            pass
+    until = int(time.time()) + minutes * 60 if minutes else 0
+    data["muted"][target] = {"until": until, "by": message.from_user.id}
+    save_data()
+    if minutes:
+        bot.reply_to(message, f"🔇 Игрок **{get_nick(target)}** в муте на {minutes} мин.", parse_mode="Markdown")
+    else:
+        bot.reply_to(message, f"🔇 Игрок **{get_nick(target)}** в муте навсегда.", parse_mode="Markdown")
+    try:
+        bot.send_message(int(target), "🔇 Вы получили мут.")
+    except:
+        pass
+
+@bot.message_handler(commands=["unmute"])
+def unmute_cmd(message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    parts = message.text.split()
+    if len(parts) < 2:
+        return bot.reply_to(message, "❌ Формат: `/unmute ID/@ник`", parse_mode="Markdown")
+    target = resolve_target(parts[1])
+    if not target:
+        return bot.reply_to(message, "❌ Игрок не найден.")
+    data["muted"].pop(target, None)
+    save_data()
+    bot.reply_to(message, f"✅ Мут снят с **{get_nick(target)}**.", parse_mode="Markdown")
+
+@bot.message_handler(commands=["чс", "blacklist", "bl"])
+def blacklist_cmd(message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    parts = message.text.split()
+    if len(parts) < 2:
+        return bot.reply_to(message, "❌ Формат: `/чс ID/@ник` — добавить\n`/чс del ID/@ник` — убрать", parse_mode="Markdown")
+    if parts[1].lower() in ["del", "удалить", "remove"]:
+        if len(parts) < 3:
+            return bot.reply_to(message, "❌ Укажите игрока.")
+        target = resolve_target(parts[2])
+        if not target:
+            return bot.reply_to(message, "❌ Игрок не найден.")
+        data["blacklist"].pop(target, None)
+        save_data()
+        return bot.reply_to(message, f"✅ **{get_nick(target)}** убран из ЧС.", parse_mode="Markdown")
+    target = resolve_target(parts[1])
+    if not target:
+        return bot.reply_to(message, "❌ Игрок не найден.")
+    data["blacklist"][target] = True
+    save_data()
+    bot.reply_to(message, f"⛔ **{get_nick(target)}** добавлен в ЧС.", parse_mode="Markdown")
 
 print("BOT STARTED")
 bot.infinity_polling(skip_pending=True)
