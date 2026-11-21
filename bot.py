@@ -8,7 +8,7 @@ ADMIN_IDS = [8211650013, 6940877915]
 DATA_DIR = pathlib.Path("/app/data"); DATA_DIR.mkdir(parents=True, exist_ok=True)
 DATA_FILE = DATA_DIR / "database.json"
 
-data = {"players": {}, "promos": {}, "activations": [], "history": [], "clans": {}, "next_id": 1, "active_games": {}, "roulette_bets": {}, "duels": {}, "banned": {}, "muted": {}, "blacklist": {}, "reports": [], "admin_logs": []}
+data = {"players": {}, "promos": {}, "activations": [], "history": [], "clans": {}, "next_id": 1, "active_games": {}, "roulette_bets": {}, "duels": {}, "banned": {}, "muted": {}, "blacklist": {}, "reports": [], "admin_logs": [], "roulette_history": []}
 db_lock = threading.Lock()
 
 # ==================== НАСТРОЙКИ РУЛЕТКИ ====================
@@ -1032,6 +1032,8 @@ def joker_cash(call):
 
 # ==================== РУЛЕТКА (ОБНОВЛЕННАЯ) ====================
 
+# ==================== РУЛЕТКА (ОБНОВЛЕННАЯ) ====================
+
 @bot.message_handler(func=lambda m: m.text and len(m.text.split()) >= 2 and m.text.split()[0].isdigit())
 def roulette_bet(message):
     uid = str(message.from_user.id)
@@ -1078,10 +1080,10 @@ def roulette_bet(message):
     add_balance(uid, -total_cost)
     save_data()
     
-    bot.reply_to(message, f"✅ Принято ставок: {len(valid_targets)} на общую сумму {total_cost} 🪙.\nНапиши `го` для запуска или `лог` чтобы посмотреть все ставки.")
+    bot.reply_to(message, f"✅ Принято ставок: {len(valid_targets)} на общую сумму {total_cost} 🪙.\nНапиши `ставки` чтобы посмотреть, `го` для запуска или `отмена` для сброса.")
 
-@bot.message_handler(func=lambda m: m.text and m.text.lower().strip() == "лог")
-def roulette_log(message):
+@bot.message_handler(func=lambda m: m.text and m.text.lower().strip() == "ставки")
+def roulette_current_bets(message):
     chat_id = str(message.chat.id)
     bets = data.get("roulette_bets", {}).get(chat_id, [])
     
@@ -1110,6 +1112,27 @@ def roulette_log(message):
     text += "Напиши `го` для запуска или `отмена` для сброса."
     bot.reply_to(message, text, parse_mode="Markdown")
 
+@bot.message_handler(func=lambda m: m.text and m.text.lower().strip() == "лог")
+def roulette_log(message):
+    history = data.get("roulette_history", [])
+    
+    if not history:
+        return bot.reply_to(message, "📭 История пуста. Сделайте ставку и напишите `го`, чтобы узнать первое число!")
+    
+    last_nums = history[-20:]  # Показываем последние 20
+    
+    lines = []
+    for num in last_nums:
+        if num == 0: color = "🟢"
+        elif 1 <= num <= 18: color = "🔴"
+        else: color = "⚫️"
+        lines.append(f"{color} {num}")
+        
+    text = f"📊 **ИСТОРИЯ ВЫПАДЕНИЙ (последние {len(last_nums)})**\n\n"
+    text += "  |  ".join(lines)
+    
+    bot.reply_to(message, text, parse_mode="Markdown")
+
 @bot.message_handler(func=lambda m: m.text and m.text.lower().strip() == "отмена")
 def roulette_cancel(message):
     chat_id = str(message.chat.id)
@@ -1132,6 +1155,12 @@ def roulette_go(message):
     if not bets: return bot.reply_to(message, "❌ Нет ставок. Сделайте ставку (например: `10 13-14`).")
     
     data["roulette_bets"][chat_id] = []
+    
+    win_num = random.randint(0, 36)
+    if "roulette_history" not in data: data["roulette_history"] = []
+    data["roulette_history"].append(win_num)
+    if len(data["roulette_history"]) > 50:
+        data["roulette_history"] = data["roulette_history"][-50:]
     save_data()
     
     try:
@@ -1142,7 +1171,6 @@ def roulette_go(message):
     
     time.sleep(3)
     
-    win_num = random.randint(0, 36)
     wc = "green" if win_num == 0 else ("red" if 1 <= win_num <= 18 else "black")
     sym = {"green": "🟢", "red": "🔴", "black": "⚫️"}[wc]
     
