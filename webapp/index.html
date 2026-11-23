@@ -1,0 +1,359 @@
+
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#10111a">
+    <title>MON1 GAME</title>
+
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            min-height: 100vh;
+            background: #10111a;
+            color: #ffffff;
+            font-family: Arial, sans-serif;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 500px;
+            margin: 0 auto;
+        }
+
+        .header {
+            padding: 25px 20px;
+            border-radius: 20px;
+            background: linear-gradient(135deg, #282b48, #171927);
+            border: 1px solid #343752;
+            margin-bottom: 20px;
+        }
+
+        .logo {
+            font-size: 25px;
+            font-weight: 900;
+            letter-spacing: 1px;
+        }
+
+        .logo span {
+            color: #7775ff;
+        }
+
+        .subtitle {
+            color: #999bb5;
+            margin-top: 8px;
+            font-size: 13px;
+        }
+
+        .profile {
+            background: #191b29;
+            border: 1px solid #292c40;
+            border-radius: 18px;
+            padding: 20px;
+            margin-bottom: 15px;
+        }
+
+        .section-title {
+            color: #999bb5;
+            font-size: 13px;
+            margin-bottom: 15px;
+        }
+
+        .player-name {
+            font-size: 22px;
+            font-weight: bold;
+            margin-bottom: 6px;
+            overflow-wrap: anywhere;
+        }
+
+        .player-id {
+            color: #8588a4;
+            font-size: 13px;
+        }
+
+        .balance-card {
+            background: linear-gradient(135deg, #514de0, #7667ff);
+            border-radius: 18px;
+            padding: 22px;
+            margin-bottom: 15px;
+        }
+
+        .balance-label {
+            color: #dedcff;
+            font-size: 13px;
+        }
+
+        .balance {
+            font-size: 32px;
+            font-weight: 900;
+            margin-top: 10px;
+            overflow-wrap: anywhere;
+        }
+
+        .balance-currency {
+            font-size: 15px;
+            font-weight: normal;
+        }
+
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 13px 0;
+            border-bottom: 1px solid #292c40;
+            font-size: 14px;
+        }
+
+        .info-row:last-child {
+            border-bottom: none;
+        }
+
+        .info-label {
+            color: #999bb5;
+        }
+
+        .info-value {
+            font-weight: bold;
+            text-align: right;
+            overflow-wrap: anywhere;
+        }
+
+        .status {
+            color: #8b88ff;
+        }
+
+        .loading, .error {
+            text-align: center;
+            padding: 30px 15px;
+            background: #191b29;
+            border: 1px solid #292c40;
+            border-radius: 18px;
+            color: #aaaac0;
+            line-height: 1.6;
+        }
+
+        .error {
+            color: #ff8585;
+        }
+
+        .footer {
+            text-align: center;
+            color: #62657d;
+            font-size: 12px;
+            margin-top: 25px;
+        }
+
+        .retry {
+            margin-top: 15px;
+            padding: 12px 22px;
+            border: none;
+            border-radius: 10px;
+            background: #6862ed;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+
+        <div class="header">
+            <div class="logo">MON1 <span>GAME</span></div>
+            <div class="subtitle">Твоя игровая вселенная</div>
+        </div>
+
+        <div id="content">
+            <div class="loading">
+                Загружаем твой профиль...
+            </div>
+        </div>
+
+        <div class="footer">
+            MON1 GAME RPG
+        </div>
+
+    </div>
+
+    <script>
+        const tg = window.Telegram.WebApp;
+
+        tg.ready();
+        tg.expand();
+
+        if (tg.setHeaderColor) {
+            tg.setHeaderColor("#10111a");
+        }
+
+        if (tg.setBackgroundColor) {
+            tg.setBackgroundColor("#10111a");
+        }
+
+        const content = document.getElementById("content");
+
+        function showError(message) {
+            content.replaceChildren();
+
+            const box = document.createElement("div");
+            box.className = "error";
+
+            const text = document.createElement("div");
+            text.textContent = message;
+
+            const button = document.createElement("button");
+            button.className = "retry";
+            button.textContent = "Повторить";
+            button.onclick = loadProfile;
+
+            box.append(text, button);
+            content.appendChild(box);
+        }
+
+        function addRow(parent, label, value, extraClass = "") {
+            const row = document.createElement("div");
+            row.className = "info-row";
+
+            const left = document.createElement("span");
+            left.className = "info-label";
+            left.textContent = label;
+
+            const right = document.createElement("span");
+            right.className = "info-value " + extraClass;
+            right.textContent = value;
+
+            row.append(left, right);
+            parent.appendChild(row);
+        }
+
+        async function loadProfile() {
+            content.innerHTML =
+                '<div class="loading">Загружаем твой профиль...</div>';
+
+            const initData = tg.initData;
+
+            if (!initData) {
+                showError(
+                    "Открой MON1 GAME через кнопку в Telegram, чтобы загрузить профиль."
+                );
+                return;
+            }
+
+            try {
+                const response = await fetch("/api/me", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        initData: initData
+                    })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok || data.error || data.ok === false) {
+                    throw new Error(
+                        data.error || data.message || "Не удалось загрузить профиль"
+                    );
+                }
+
+                const player = data.player || data.user || data;
+
+                const name =
+                    player.first_name ||
+                    player.name ||
+                    player.username ||
+                    "Игрок";
+
+                const username = player.username
+                    ? "@" + player.username.replace(/^@/, "")
+                    : "Не указан";
+
+                const balance = Number(player.balance ?? 0);
+
+                const shortId =
+                    player.short_id ??
+                    player.game_id ??
+                    player.id ??
+                    "—";
+
+                const status =
+                    player.donate_status ||
+                    player.status ||
+                    "Обычный игрок";
+
+                content.replaceChildren();
+
+                const profile = document.createElement("div");
+                profile.className = "profile";
+
+                const title = document.createElement("div");
+                title.className = "section-title";
+                title.textContent = "ТВОЙ ПРОФИЛЬ";
+
+                const playerName = document.createElement("div");
+                playerName.className = "player-name";
+                playerName.textContent = name;
+
+                const playerUsername = document.createElement("div");
+                playerUsername.className = "player-id";
+                playerUsername.textContent = username;
+
+                profile.append(title, playerName, playerUsername);
+
+                const balanceCard = document.createElement("div");
+                balanceCard.className = "balance-card";
+
+                const balanceLabel = document.createElement("div");
+                balanceLabel.className = "balance-label";
+                balanceLabel.textContent = "ТВОЙ БАЛАНС";
+
+                const balanceValue = document.createElement("div");
+                balanceValue.className = "balance";
+                balanceValue.textContent =
+                    balance.toLocaleString("ru-RU") + " ";
+
+                const currency = document.createElement("span");
+                currency.className = "balance-currency";
+                currency.textContent = "монет";
+
+                balanceValue.appendChild(currency);
+                balanceCard.append(balanceLabel, balanceValue);
+
+                const info = document.createElement("div");
+                info.className = "profile";
+
+                const infoTitle = document.createElement("div");
+                infoTitle.className = "section-title";
+                infoTitle.textContent = "ИНФОРМАЦИЯ";
+
+                info.appendChild(infoTitle);
+
+                addRow(info, "Игровой ID", String(shortId));
+                addRow(info, "Telegram", username);
+                addRow(info, "Статус", String(status), "status");
+
+                content.append(profile, balanceCard, info);
+
+            } catch (error) {
+                console.error("MON1 GAME:", error);
+
+                showError(
+                    error.message || "Ошибка соединения с сервером."
+                );
+            }
+        }
+
+        loadProfile();
+    </script>
+</body>
+</html>
