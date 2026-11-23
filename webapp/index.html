@@ -22,9 +22,7 @@
     --gold:#ffca69;
 }
 
-* {
-    box-sizing:border-box;
-}
+* { box-sizing:border-box; }
 
 body {
     margin:0;
@@ -35,9 +33,7 @@ body {
     padding:18px 15px 100px;
 }
 
-button,input,select {
-    font:inherit;
-}
+button,input,select { font:inherit; }
 
 button {
     border:0;
@@ -47,14 +43,9 @@ button {
     transition:transform .15s,filter .15s;
 }
 
-button:active {
-    transform:scale(.98);
-}
+button:active { transform:scale(.98); }
 
-.app {
-    max-width:560px;
-    margin:auto;
-}
+.app { max-width:560px; margin:auto; }
 
 .top {
     display:flex;
@@ -63,23 +54,9 @@ button:active {
     margin:5px 2px 20px;
 }
 
-.brand {
-    font-weight:950;
-    letter-spacing:1.2px;
-    font-size:23px;
-}
-
-.brand b {
-    color:#9a8cff;
-}
-
-.sub {
-    font-size:10px;
-    color:var(--muted);
-    letter-spacing:2px;
-    margin-top:4px;
-}
-
+.brand { font-weight:950; letter-spacing:1.2px; font-size:23px; }
+.brand b { color:#9a8cff; }
+.sub { font-size:10px; color:var(--muted); letter-spacing:2px; margin-top:4px; }
 .online {
     border:1px solid rgba(72,214,160,.25);
     background:rgba(72,214,160,.1);
@@ -110,31 +87,10 @@ button:active {
     top:-24px;
 }
 
-.eyebrow {
-    font-size:10px;
-    letter-spacing:1.7px;
-    color:#d8d5ff;
-    font-weight:800;
-}
-
-.balance {
-    font-size:32px;
-    font-weight:950;
-    margin:9px 0 4px;
-    letter-spacing:-1px;
-}
-
-.coin {
-    font-size:16px;
-}
-
-.hero-foot {
-    display:flex;
-    justify-content:space-between;
-    color:#dedcff;
-    font-size:11px;
-    gap:8px;
-}
+.eyebrow { font-size:10px; letter-spacing:1.7px; color:#d8d5ff; font-weight:800; }
+.balance { font-size:32px; font-weight:950; margin:9px 0 4px; letter-spacing:-1px; }
+.coin { font-size:16px; }
+.hero-foot { display:flex; justify-content:space-between; color:#dedcff; font-size:11px; gap:8px; }
 
 .profile {
     display:flex;
@@ -158,47 +114,15 @@ button:active {
     font-weight:900;
 }
 
-.pname {
-    font-weight:800;
-}
+.pname { font-weight:800; }
+.pmeta { font-size:11px; color:var(--muted); margin-top:4px; }
+.status { margin-left:auto; text-align:right; font-size:11px; color:#b7adff; font-weight:800; }
 
-.pmeta {
-    font-size:11px;
-    color:var(--muted);
-    margin-top:4px;
-}
+.section-head { display:flex; justify-content:space-between; align-items:end; margin:22px 2px 11px; }
+.section-head h2 { font-size:15px; margin:0; letter-spacing:.2px; }
+.section-head span { font-size:10px; color:var(--muted); }
 
-.status {
-    margin-left:auto;
-    text-align:right;
-    font-size:11px;
-    color:#b7adff;
-    font-weight:800;
-}
-
-.section-head {
-    display:flex;
-    justify-content:space-between;
-    align-items:end;
-    margin:22px 2px 11px;
-}
-
-.section-head h2 {
-    font-size:15px;
-    margin:0;
-    letter-spacing:.2px;
-}
-
-.section-head span {
-    font-size:10px;
-    color:var(--muted);
-}
-
-.tiles {
-    display:grid;
-    grid-template-columns:1fr 1fr;
-    gap:10px;
-}
+.tiles { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
 
 .tile {
     background:linear-gradient(145deg,#192541,#131b2e);
@@ -212,24 +136,10 @@ button:active {
     gap:8px;
 }
 
-.tile .emoji {
-    font-size:25px;
-}
-
-.tile strong {
-    font-size:14px;
-}
-
-.tile small {
-    font-size:10px;
-    color:var(--muted);
-    font-weight:500;
-}
-
-.tile.active {
-    border-color:rgba(120,103,255,.7);
-    box-shadow:0 0 0 1px rgba(120,103,255,.15) inset;
-}
+.tile .emoji { font-size:25px; }
+.tile strong { font-size:14px; }
+.tile small { font-size:10px; color:var(--muted); font-weight:500; }
+.tile.active { border-color:rgba(120,103,255,.7); box-shadow:0 0 0 1px rgba(120,103,255,.15) inset; }
 
 .card {
     background:var(--panel);
@@ -239,20 +149,8 @@ button:active {
     margin-bottom:11px;
 }
 
-.card-title {
-    font-weight:850;
-    font-size:14px;
-    display:flex;
-    align-items:center;
-    gap:8px;
-}
-
-.desc {
-    color:var(--muted);
-    font-size:11px;
-    line-height:1.5;
-    margin-top:6px;
-}
+.card-title { font-weight:850; font-size:14px; display:flex; align-items:center; gap:8px; }
+.desc { color:var(--muted); font-size:11px; line-height:1.5; margin-top:6px; }
 
 .primary {
     width:100%;
@@ -263,16 +161,8 @@ button:active {
     box-shadow:0 8px 20px rgba(98,91,230,.18);
 }
 
-.primary.green {
-    background:linear-gradient(100deg,#20ad8b,#42d6a3);
-    color:#071a19;
-}
-
-.primary:disabled {
-    opacity:.45;
-    cursor:not-allowed;
-    box-shadow:none;
-}
+.primary.green { background:linear-gradient(100deg,#20ad8b,#42d6a3); color:#071a19; }
+.primary:disabled { opacity:.45; cursor:not-allowed; box-shadow:none; }
 
 .field {
     width:100%;
@@ -285,42 +175,16 @@ button:active {
     outline:none;
 }
 
-.field:focus {
-    border-color:#8175ff;
-}
+.field:focus { border-color:#8175ff; }
 
-.note {
-    font-size:11px;
-    color:var(--muted);
-    margin-top:9px;
-    min-height:16px;
-}
+.note { font-size:11px; color:var(--muted); margin-top:9px; min-height:16px; }
+.hidden { display:none!important; }
 
-.hidden {
-    display:none!important;
-}
+.game-panel { margin-top:15px; }
+.game-top { display:flex; justify-content:space-between; align-items:center; margin-bottom:13px; }
+.game-stat { font-size:11px; color:var(--muted); }
 
-.game-panel {
-    margin-top:15px;
-}
-
-.game-top {
-    display:flex;
-    justify-content:space-between;
-    align-items:center;
-    margin-bottom:13px;
-}
-
-.game-stat {
-    font-size:11px;
-    color:var(--muted);
-}
-
-.grid25 {
-    display:grid;
-    grid-template-columns:repeat(5,1fr);
-    gap:7px;
-}
+.grid25 { display:grid; grid-template-columns:repeat(5,1fr); gap:7px; }
 
 .cell {
     aspect-ratio:1;
@@ -330,19 +194,9 @@ button:active {
     font-size:21px;
 }
 
-.cell.open {
-    background:rgba(56,201,220,.15);
-    border-color:rgba(56,201,220,.3);
-}
-
-.cell.mine {
-    background:rgba(255,100,124,.17);
-    border-color:rgba(255,100,124,.4);
-}
-
-.cell:disabled {
-    cursor:default;
-}
+.cell.open { background:rgba(56,201,220,.15); border-color:rgba(56,201,220,.3); }
+.cell.mine { background:rgba(255,100,124,.17); border-color:rgba(255,100,124,.4); }
+.cell:disabled { cursor:default; }
 
 .crash-box {
     height:180px;
@@ -357,28 +211,9 @@ button:active {
     position:relative;
 }
 
-.crash-number {
-    font-size:43px;
-    font-weight:950;
-    letter-spacing:-2px;
-}
-
-.crash-caption {
-    font-size:10px;
-    color:var(--muted);
-    letter-spacing:1.6px;
-    margin-top:5px;
-}
-
-.crash-line {
-    position:absolute;
-    bottom:24px;
-    left:12%;
-    right:12%;
-    height:2px;
-    background:linear-gradient(90deg,transparent,var(--cyan),transparent);
-    opacity:.6;
-}
+.crash-number { font-size:43px; font-weight:950; letter-spacing:-2px; }
+.crash-caption { font-size:10px; color:var(--muted); letter-spacing:1.6px; margin-top:5px; }
+.crash-line { position:absolute; bottom:24px; left:12%; right:12%; height:2px; background:linear-gradient(90deg,transparent,var(--cyan),transparent); opacity:.6; }
 
 .tabs {
     position:fixed;
@@ -395,24 +230,9 @@ button:active {
     z-index:5;
 }
 
-.tab {
-    background:transparent;
-    color:var(--muted);
-    font-size:10px;
-    padding:7px 4px;
-    border-radius:12px;
-}
-
-.tab span {
-    display:block;
-    font-size:18px;
-    margin-bottom:4px;
-}
-
-.tab.selected {
-    background:rgba(120,103,255,.14);
-    color:#c4bcff;
-}
+.tab { background:transparent; color:var(--muted); font-size:10px; padding:7px 4px; border-radius:12px; }
+.tab span { display:block; font-size:18px; margin-bottom:4px; }
+.tab.selected { background:rgba(120,103,255,.14); color:#c4bcff; }
 
 .toast {
     position:fixed;
@@ -430,34 +250,8 @@ button:active {
     text-align:center;
 }
 
-.loading {
-    text-align:center;
-    color:var(--muted);
-    padding:25px;
-    font-size:12px;
-}
-
-.foot {
-    text-align:center;
-    color:#5f6b86;
-    font-size:10px;
-    margin:24px 0 0;
-}
-
-@media(min-width:480px) {
-    body {
-        padding-top:25px;
-    }
-
-    .tiles {
-        gap:12px;
-    }
-
-    .tile {
-        min-height:125px;
-        padding:17px;
-    }
-}
+.loading { text-align:center; color:var(--muted); padding:25px; font-size:12px; }
+.foot { text-align:center; color:#5f6b86; font-size:10px; margin:24px 0 0; }
 </style>
 </head>
 
@@ -497,19 +291,18 @@ button:active {
             <div class="status" id="playerStatus">Игрок</div>
         </section>
 
+        <!-- ГЛАВНАЯ -->
         <section id="homePage">
-
             <div class="section-head">
                 <h2>Игровой центр</h2>
                 <span>Выбери режим</span>
             </div>
 
             <div class="tiles">
-
                 <button class="tile" data-page="minesPage">
                     <span class="emoji">💣</span>
                     <strong>Мины</strong>
-                    <small>Логика и внимательность · тренировка</small>
+                    <small>Логика и внимательность</small>
                 </button>
 
                 <button class="tile" data-page="crashPage">
@@ -529,7 +322,6 @@ button:active {
                     <strong>Промокод</strong>
                     <small>Активируй код сообщества</small>
                 </button>
-
             </div>
 
             <div class="section-head">
@@ -539,90 +331,81 @@ button:active {
 
             <div class="card">
                 <div class="card-title">🎁 Ежедневный подарок</div>
-                <div class="desc" id="bonusSummary">
-                    Проверяем доступность бонуса…
-                </div>
-                <button class="primary green" id="quickBonus">
-                    ЗАБРАТЬ БОНУС
-                </button>
+                <div class="desc" id="bonusSummary">Проверяем доступность бонуса…</div>
+                <button class="primary green" id="quickBonus">ЗАБРАТЬ БОНУС</button>
             </div>
-
         </section>
 
+        <!-- МИНЫ -->
         <section id="minesPage" class="hidden">
-
             <div class="section-head">
                 <h2>💣 Мины</h2>
-                <span>Тренировочный режим</span>
+                <span>Игра на валюту</span>
             </div>
 
             <div class="card">
                 <div class="card-title">Найди безопасные клетки</div>
-
                 <div class="desc">
-                    Выбери количество мин и открой клетки.
-                    Здесь нет ставок и списания монет — это режим для тренировки.
+                    Выбери ставку и количество мин. За каждую безопасную клетку множитель растет. Если попадешь на мину — ставка сгорает.
                 </div>
 
+                <input type="number" class="field" id="minesBet" value="100" min="100" placeholder="Ставка (мин. 100)">
+                
                 <select class="field" id="bombCount">
-                    <option value="3">3 мины · проще</option>
-                    <option value="5" selected>5 мин · стандарт</option>
-                    <option value="9">9 мин · сложнее</option>
+                    <option value="3">3 мины · x1.15</option>
+                    <option value="5" selected>5 мин · x1.25</option>
+                    <option value="9">9 мин · x1.45</option>
                 </select>
 
-                <button class="primary" id="startMines">
-                    НОВЫЙ РАУНД
-                </button>
+                <button class="primary" id="startMines">НОВЫЙ РАУНД</button>
 
                 <div id="minesGame" class="game-panel hidden">
                     <div class="game-top">
-                        <span class="game-stat" id="minesStatus">Открыто: 0</span>
-                        <span class="game-stat">Поле 5 × 5</span>
+                        <span class="game-stat" id="minesStatus">Безопасных клеток: 0</span>
                     </div>
                     <div class="grid25" id="minesGrid"></div>
+                    
+                    <button class="primary green" id="cashoutMines" style="margin-top: 15px;">
+                        💰 ЗАБРАТЬ <span id="minesWinAmount">0</span> 🪙
+                    </button>
                 </div>
 
-                <div class="note" id="minesNote">
-                    Нажми «Новый раунд», чтобы начать.
-                </div>
+                <div class="note" id="minesNote">Нажми «Новый раунд», чтобы начать.</div>
             </div>
-
         </section>
 
+        <!-- КРАШ -->
         <section id="crashPage" class="hidden">
-
             <div class="section-head">
                 <h2>🚀 Краш</h2>
-                <span>Демо-режим</span>
+                <span>Игра на валюту</span>
             </div>
 
             <div class="card">
-
                 <div class="desc" style="margin-top:0;margin-bottom:13px">
-                    Наблюдай за ростом множителя и попробуй угадать момент остановки.
-                    Демо не влияет на игровой баланс.
+                    Введи ставку и запусти раунд. Множитель растет каждую секунду. Успей забрать деньги до краша!
                 </div>
 
-                <div class="crash-box">
+                <input type="number" class="field" id="crashBet" value="100" min="100" placeholder="Ставка (мин. 100)">
+
+                <div class="crash-box" style="margin-top: 13px;">
                     <div class="crash-number" id="crashNumber">x1.00</div>
                     <div class="crash-caption" id="crashCaption">ГОТОВ К ЗАПУСКУ</div>
                     <div class="crash-line"></div>
                 </div>
 
-                <button class="primary" id="startCrash">
-                    ЗАПУСТИТЬ ДЕМО
+                <button class="primary" id="startCrash">ЗАПУСТИТЬ</button>
+                
+                <button class="primary green hidden" id="cashoutCrash" style="margin-top: 10px;">
+                    💰 ЗАБРАТЬ <span id="crashWinAmount">0</span> 🪙
                 </button>
 
-                <div class="note" id="crashNote">
-                    В тренировочном режиме нет ставок и денежных выплат.
-                </div>
-
+                <div class="note" id="crashNote">Играй с умом.</div>
             </div>
-
         </section>
 
+        <!-- БОНУС -->
         <section id="bonusPage" class="hidden">
-
             <div class="section-head">
                 <h2>🎁 Ежедневный бонус</h2>
                 <span>Раз в 24 часа</span>
@@ -630,23 +413,18 @@ button:active {
 
             <div class="card">
                 <div class="card-title">Твой подарок ждёт</div>
-
                 <div class="desc">
                     Получи случайную награду от 1 000 до 3 000 🪙.
                     Повторное получение доступно через 24 часа.
                 </div>
 
-                <button class="primary green" id="claimBonus">
-                    ЗАБРАТЬ БОНУС
-                </button>
-
+                <button class="primary green" id="claimBonus">ЗАБРАТЬ БОНУС</button>
                 <div class="note" id="bonusNote"></div>
             </div>
-
         </section>
 
+        <!-- ПРОМО -->
         <section id="promoPage" class="hidden">
-
             <div class="section-head">
                 <h2>🎟️ Промокоды</h2>
                 <span>Бонусы сообщества</span>
@@ -654,28 +432,15 @@ button:active {
 
             <div class="card">
                 <div class="card-title">Активировать промокод</div>
-
                 <div class="desc">
                     Введи действующий код.
                     Каждый промокод можно активировать только один раз на аккаунт.
                 </div>
 
-                <input
-                    class="field"
-                    id="promoInput"
-                    maxlength="40"
-                    placeholder="НАПРИМЕР: MON1START"
-                    autocomplete="off"
-                    autocapitalize="characters"
-                >
-
-                <button class="primary" id="activatePromo">
-                    АКТИВИРОВАТЬ
-                </button>
-
+                <input class="field" id="promoInput" maxlength="40" placeholder="НАПРИМЕР: MON1START" autocomplete="off" autocapitalize="characters">
+                <button class="primary" id="activatePromo">АКТИВИРОВАТЬ</button>
                 <div class="note" id="promoNote"></div>
             </div>
-
         </section>
 
     </main>
@@ -687,15 +452,9 @@ button:active {
 </div>
 
 <nav class="tabs hidden" id="tabs">
-    <button class="tab selected" data-tab="homePage">
-        <span>⌂</span>Главная
-    </button>
-    <button class="tab" data-tab="minesPage">
-        <span>🎮</span>Игры
-    </button>
-    <button class="tab" data-tab="bonusPage">
-        <span>🎁</span>Награды
-    </button>
+    <button class="tab selected" data-tab="homePage"><span>⌂</span>Главная</button>
+    <button class="tab" data-tab="minesPage"><span>🎮</span>Игры</button>
+    <button class="tab" data-tab="bonusPage"><span>🎁</span>Награды</button>
 </nav>
 
 <script>
@@ -704,7 +463,6 @@ const tg = window.Telegram?.WebApp;
 if (tg) {
     tg.ready();
     tg.expand();
-
     try {
         tg.setHeaderColor('#0b1020');
         tg.setBackgroundColor('#0b1020');
@@ -712,338 +470,245 @@ if (tg) {
 }
 
 const initData = tg?.initData || '';
-
 let profile = null;
 let minesSession = null;
 let crashSession = null;
 let crashTimer = null;
 
 const $ = id => document.getElementById(id);
-
-const money = n =>
-    Number(n || 0).toLocaleString('ru-RU');
+const money = n => Number(n || 0).toLocaleString('ru-RU');
 
 function toast(message) {
     const el = document.createElement('div');
     el.className = 'toast';
     el.textContent = message;
-
     document.body.appendChild(el);
-
     setTimeout(() => el.remove(), 2600);
 }
 
 async function api(path, body = {}) {
     const response = await fetch(path, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            ...body,
-            initData
-        })
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...body, initData })
     });
-
-    const data = await response.json().catch(() => ({
-        error: 'Некорректный ответ сервера'
-    }));
-
-    if (!response.ok || data.ok === false) {
-        throw new Error(data.error || 'Ошибка запроса');
-    }
-
+    const data = await response.json().catch(() => ({ error: 'Некорректный ответ сервера' }));
+    if (!response.ok || data.ok === false) throw new Error(data.error || 'Ошибка запроса');
     return data;
 }
 
 function updateBalance(value) {
     if (profile) {
         profile.balance = value;
-        $('balance').innerHTML =
-            money(value) + ' <span class="coin">🪙</span>';
+        $('balance').innerHTML = money(value) + ' <span class="coin">🪙</span>';
     }
 }
 
 function formatLeft(seconds) {
     seconds = Math.max(0, Number(seconds) || 0);
-
     return `${Math.floor(seconds / 3600)} ч. ${Math.floor(seconds % 3600 / 60)} мин.`;
 }
 
 function updateBonusUi(ready, left) {
     $('claimBonus').disabled = !ready;
     $('quickBonus').disabled = !ready;
-
-    $('bonusSummary').textContent = ready
-        ? 'Бонус доступен — забирай награду прямо сейчас!'
-        : 'Следующий бонус будет доступен через ' + formatLeft(left);
-
-    $('bonusNote').textContent = ready
-        ? 'Бонус доступен.'
-        : 'Следующая награда через ' + formatLeft(left);
+    $('bonusSummary').textContent = ready ? 'Бонус доступен — забирай награду прямо сейчас!' : 'Следующий бонус будет доступен через ' + formatLeft(left);
+    $('bonusNote').textContent = ready ? 'Бонус доступен.' : 'Следующая награда через ' + formatLeft(left);
 }
 
 async function loadProfile() {
     if (!initData) {
-        $('loading').textContent =
-            'Открой Mini App через кнопку в Telegram, отправив боту /start.';
+        $('loading').textContent = 'Открой Mini App через кнопку в Telegram.';
         return;
     }
-
     try {
         profile = await api('/api/me');
-
         $('loading').classList.add('hidden');
         $('main').classList.remove('hidden');
         $('tabs').classList.remove('hidden');
-
-        $('balance').innerHTML =
-            money(profile.balance) + ' <span class="coin">🪙</span>';
-
+        updateBalance(profile.balance);
         $('playerName').textContent = profile.name || 'Игрок';
         $('heroName').textContent = profile.name || 'Игрок';
         $('username').textContent = 'Игровой профиль';
-
-        $('heroId').textContent =
-            'ID: ' + (profile.short_id ?? '—');
-
-        $('playerStatus').textContent =
-            profile.status || 'Игрок';
-
-        $('avatar').textContent =
-            (profile.name || 'M').slice(0, 1).toUpperCase();
-
-        updateBonusUi(
-            profile.bonus_ready,
-            profile.bonus_seconds_left
-        );
-
+        $('heroId').textContent = 'ID: ' + (profile.short_id ?? '—');
+        $('playerStatus').textContent = profile.status || 'Игрок';
+        $('avatar').textContent = (profile.name || 'M').slice(0, 1).toUpperCase();
+        updateBonusUi(profile.bonus_ready, profile.bonus_seconds_left);
     } catch(error) {
         $('loading').textContent = error.message;
     }
 }
 
 function showPage(id) {
-    [
-        'homePage',
-        'minesPage',
-        'crashPage',
-        'bonusPage',
-        'promoPage'
-    ].forEach(page => {
+    ['homePage', 'minesPage', 'crashPage', 'bonusPage', 'promoPage'].forEach(page => {
         $(page).classList.toggle('hidden', page !== id);
     });
-
     document.querySelectorAll('.tab').forEach(tab => {
-        tab.classList.toggle(
-            'selected',
+        tab.classList.toggle('selected',
             tab.dataset.tab === id ||
-            ((id === 'minesPage' || id === 'crashPage') &&
-             tab.dataset.tab === 'minesPage') ||
+            ((id === 'minesPage' || id === 'crashPage') && tab.dataset.tab === 'minesPage') ||
             (id === 'promoPage' && tab.dataset.tab === 'bonusPage')
         );
     });
-
-    window.scrollTo({
-        top: 0,
-        behavior: 'smooth'
-    });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 document.querySelectorAll('[data-page]').forEach(button => {
-    button.addEventListener('click', () => {
-        showPage(button.dataset.page);
-    });
+    button.addEventListener('click', () => { showPage(button.dataset.page); });
 });
 
 document.querySelectorAll('[data-tab]').forEach(button => {
-    button.addEventListener('click', () => {
-        showPage(button.dataset.tab);
-    });
+    button.addEventListener('click', () => { showPage(button.dataset.tab); });
 });
 
-// ЕЖЕДНЕВНЫЙ БОНУС
-
+// БОНУС
 async function claimBonus() {
     try {
         const data = await api('/api/bonus');
-
         updateBalance(data.balance);
         updateBonusUi(false, 86400);
-
         toast('🎉 Получено ' + money(data.reward) + ' 🪙');
-
     } catch(error) {
         toast(error.message);
-
         try {
             const data = await api('/api/me');
-
             profile = data;
-
-            updateBonusUi(
-                data.bonus_ready,
-                data.bonus_seconds_left
-            );
-
+            updateBonusUi(data.bonus_ready, data.bonus_seconds_left);
         } catch(e) {}
     }
 }
-
 $('claimBonus').addEventListener('click', claimBonus);
 $('quickBonus').addEventListener('click', claimBonus);
 
-// ПРОМОКОДЫ
-
+// ПРОМО
 $('activatePromo').addEventListener('click', async () => {
     const code = $('promoInput').value.trim();
-
-    if (!code) {
-        $('promoNote').textContent = 'Введи промокод.';
-        return;
-    }
-
+    if (!code) { $('promoNote').textContent = 'Введи промокод.'; return; }
     $('promoNote').textContent = 'Проверяем промокод…';
-
     try {
-        const data = await api('/api/promo', {
-            code: code
-        });
-
+        const data = await api('/api/promo', { code: code });
         updateBalance(data.balance);
-
-        $('promoNote').textContent =
-            'Успешно! Начислено ' + money(data.reward) + ' 🪙';
-
+        $('promoNote').textContent = 'Успешно! Начислено ' + money(data.reward) + ' 🪙';
         $('promoInput').value = '';
-
         toast('Промокод активирован!');
-
     } catch(error) {
         $('promoNote').textContent = error.message;
     }
 });
 
-// МИНЫ — ТРЕНИРОВОЧНЫЙ РЕЖИМ
-
+// МИНЫ
 async function startMines() {
+    const bet = Number($('minesBet').value);
+    if (bet < 100) return toast('Минимальная ставка — 100 🪙');
     try {
-        const data = await api('/api/mines/start', {
-            bombs: Number($('bombCount').value)
-        });
-
+        const data = await api('/api/mines/start', { bombs: Number($('bombCount').value), bet: bet });
         minesSession = data.session;
-
+        updateBalance(data.balance);
         $('minesGame').classList.remove('hidden');
-        $('minesNote').textContent =
-            'Раунд начат. Открывай клетки!';
-
+        $('minesNote').textContent = 'Раунд начат. Открывай клетки!';
+        $('startMines').disabled = true;
         renderMines([], [], true);
-
+        updateMinesWin(0);
     } catch(error) {
         toast(error.message);
     }
 }
 
+function updateMinesWin(amount) {
+    $('minesWinAmount').textContent = money(amount);
+    const btn = $('cashoutMines');
+    if (amount > 0) btn.classList.remove('hidden');
+    else btn.classList.add('hidden');
+}
+
 function renderMines(opened, mines = [], active = true) {
     const grid = $('minesGrid');
-
     grid.replaceChildren();
-
     for (let i = 0; i < 25; i++) {
         const button = document.createElement('button');
-
         button.className = 'cell';
         button.textContent = '?';
-
-        button.disabled =
-            !active ||
-            opened.includes(i) ||
-            mines.includes(i);
-
+        button.disabled = !active || opened.includes(i) || mines.includes(i);
         if (opened.includes(i)) {
             button.classList.add('open');
             button.textContent = '💎';
         }
-
         if (mines.includes(i)) {
             button.classList.add('mine');
             button.textContent = '💣';
         }
-
-        button.addEventListener('click', () => {
-            openMine(i);
-        });
-
+        button.addEventListener('click', () => { openMine(i); });
         grid.appendChild(button);
     }
-
-    $('minesStatus').textContent =
-        'Безопасных клеток: ' + opened.length;
+    $('minesStatus').textContent = 'Безопасных клеток: ' + opened.length;
 }
 
 async function openMine(cell) {
     if (!minesSession) return;
-
     try {
-        const data = await api('/api/mines/open', {
-            session: minesSession,
-            cell: cell
-        });
-
-        renderMines(
-            data.opened,
-            data.mines || [],
-            data.active
-        );
-
+        const data = await api('/api/mines/open', { session: minesSession, cell: cell });
+        renderMines(data.opened, data.mines || [], data.active);
+        
+        const bombs = Number($('bombCount').value);
+        const mults = {3: 1.15, 5: 1.25, 9: 1.45};
+        const currentMult = mults[bombs] ** data.opened.length;
+        const potentialWin = Math.floor(Number($('minesBet').value) * currentMult);
+        
         if (data.hit) {
-            $('minesNote').textContent =
-                '💥 Найдена мина! Тренировочный раунд завершён. Нажми «Новый раунд».';
-
+            $('minesNote').textContent = '💥 Найдена мина! Ставка сгорела.';
             minesSession = null;
-
-            toast('Раунд завершён');
-
+            $('startMines').disabled = false;
+            updateMinesWin(0);
+            updateBalance(data.balance);
+            toast('Вы проиграли!');
         } else if (!data.active) {
-            $('minesNote').textContent =
-                '🏆 Поле очищено! Отличная внимательность.';
-
+            $('minesNote').textContent = `🏆 Поле очищено! Выигрыш: ${money(data.auto_win)} 🪙`;
             minesSession = null;
-
+            $('startMines').disabled = false;
+            updateMinesWin(0);
+            updateBalance(data.balance);
+            toast(`Выигрыш ${money(data.auto_win)} 🪙!`);
         } else {
-            $('minesNote').textContent =
-                'Безопасно! Продолжай.';
+            $('minesNote').textContent = 'Безопасно! Продолжай или забирай.';
+            updateMinesWin(potentialWin);
         }
-
     } catch(error) {
         $('minesNote').textContent = error.message;
     }
 }
 
+$('cashoutMines').addEventListener('click', async () => {
+    if (!minesSession) return;
+    try {
+        const data = await api('/api/mines/cashout', { session: minesSession });
+        updateBalance(data.balance);
+        $('minesNote').textContent = `🏆 Забрано ${money(data.win)} 🪙 (x${data.mult.toFixed(2)})`;
+        $('minesGame').classList.add('hidden');
+        $('startMines').disabled = false;
+        minesSession = null;
+        toast(`Успешно забрано ${money(data.win)} 🪙`);
+    } catch (e) {
+        toast(e.message);
+    }
+});
+
 $('startMines').addEventListener('click', startMines);
 
-// КРАШ — ТРЕНИРОВОЧНЫЙ РЕЖИМ
-
+// КРАШ
 async function startCrash() {
-    if (crashTimer) {
-        clearInterval(crashTimer);
-    }
-
+    if (crashTimer) clearInterval(crashTimer);
+    const bet = Number($('crashBet').value);
+    if (bet < 100) return toast('Минимальная ставка — 100 🪙');
     try {
-        const data = await api('/api/crash/start');
-
+        const data = await api('/api/crash/start', { bet: bet });
         crashSession = data.session;
-
+        updateBalance(data.balance);
         $('crashNumber').textContent = 'x1.00';
         $('crashCaption').textContent = 'РАУНД ИДЁТ';
-        $('crashNote').textContent =
-            'Наблюдай за коэффициентом…';
-
+        $('crashNote').textContent = 'Успей забрать!';
         $('startCrash').disabled = true;
-
+        $('cashoutCrash').classList.remove('hidden');
         crashTimer = setInterval(pollCrash, 350);
-
     } catch(error) {
         toast(error.message);
     }
@@ -1051,47 +716,54 @@ async function startCrash() {
 
 async function pollCrash() {
     if (!crashSession) return;
-
     try {
-        const data = await api('/api/crash/state', {
-            session: crashSession
-        });
-
-        $('crashNumber').textContent =
-            'x' + Number(data.multiplier).toFixed(2);
-
+        const data = await api('/api/crash/state', { session: crashSession });
+        $('crashNumber').textContent = 'x' + Number(data.multiplier).toFixed(2);
+        $('crashWinAmount').textContent = money(Math.floor(Number($('crashBet').value) * data.multiplier));
+        
         if (data.crashed) {
             clearInterval(crashTimer);
-
             crashTimer = null;
             crashSession = null;
-
-            $('crashCaption').textContent =
-                'РАУНД ОСТАНОВЛЕН';
-
-            $('crashNote').textContent =
-                'Демо-раунд завершён. Баланс не менялся.';
-
+            $('crashCaption').textContent = 'КРАШ!';
+            $('crashNote').textContent = 'Ставка сгорела.';
             $('startCrash').disabled = false;
+            $('cashoutCrash').classList.add('hidden');
+            toast('Краш! Вы проиграли.');
         }
-
     } catch(error) {
         clearInterval(crashTimer);
-
         crashTimer = null;
         crashSession = null;
-
         $('startCrash').disabled = false;
         $('crashNote').textContent = error.message;
+        $('cashoutCrash').classList.add('hidden');
     }
 }
 
 $('startCrash').addEventListener('click', startCrash);
 
-// ЗАГРУЗКА ПРОФИЛЯ
+$('cashoutCrash').addEventListener('click', async () => {
+    if (!crashSession) return;
+    try {
+        const data = await api('/api/crash/cashout', { session: crashSession });
+        clearInterval(crashTimer);
+        crashTimer = null;
+        crashSession = null;
+        updateBalance(data.balance);
+        $('crashCaption').textContent = 'ЗАБРАНО';
+        $('crashNote').textContent = `Вы забрали ${money(data.win)} 🪙 (x${data.mult})`;
+        $('startCrash').disabled = false;
+        $('cashoutCrash').classList.add('hidden');
+        toast(`Успешно забрано ${money(data.win)} 🪙`);
+    } catch (e) {
+        toast(e.message);
+        // Если опоздали с выводом - поллим дальше, чтобы показать краш
+        pollCrash();
+    }
+});
 
 loadProfile();
-
 </script>
 
 </body>
