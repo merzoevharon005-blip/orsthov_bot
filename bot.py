@@ -1,5 +1,8 @@
 import os, random, math, time, telebot, threading, json, pathlib
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, LabeledPrice
+import hmac, hashlib
+from urllib.parse import parse_qsl
+from flask import Flask, jsonify, request, send_from_directory
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, LabeledPrice, WebAppInfo
 
 TOKEN = os.getenv("BOT_TOKEN")
 if not TOKEN: raise ValueError("Не задан BOT_TOKEN")
@@ -54,6 +57,90 @@ def migrate_data():
 
 migrate_data()
 bot = telebot.TeleBot(TOKEN)
+
+# ==================== TELEGRAM MINI APP ====================
+
+WEBAPP_URL = "https://bot-1794808232-3061-mon1x.bothost.tech"
+WEBAPP_DIR = pathlib.Path(__file__).parent / "webapp"
+web_app = Flask(__name__, static_folder=None)
+
+
+def validate_telegram_init_data(init_data: str):
+    """Проверяет подпись initData от Telegram. Не доверяем данным из браузера."""
+    if not init_data or len(init_data) > 10000:
+        return None
+
+    try:
+        parsed = dict(parse_qsl(init_data, keep_blank_values=True))
+        received_hash = parsed.pop("hash", None)
+        if not received_hash:
+            return None
+
+        data_check_string = "\n".join(
+            f"{key}={parsed[key]}" for key in sorted(parsed)
+        )
+        secret_key = hmac.new(
+            b"WebAppData", TOKEN.encode("utf-8"), hashlib.sha256
+        ).digest()
+        calculated_hash = hmac.new(
+            secret_key, data_check_string.encode("utf-8"), hashlib.sha256
+        ).hexdigest()
+
+        if not hmac.compare_digest(calculated_hash, received_hash):
+            return None
+
+        auth_date = int(parsed.get("auth_date", "0"))
+        if auth_date <= 0 or time.time() - auth_date > 86400:
+            return None
+
+        user = json.loads(parsed.get("user", "{}"))
+        if not user.get("id"):
+            return None
+        return user
+    except (ValueError, TypeError, json.JSONDecodeError):
+        return None
+
+
+@web_app.route("/")
+def mini_app_index():
+    return send_from_directory(WEBAPP_DIR, "index.html")
+
+
+@web_app.route("/api/me", methods=["POST"])
+def mini_app_me():
+    payload = request.get_json(silent=True) or {}
+    tg_user = validate_telegram_init_data(payload.get("initData", ""))
+    if not tg_user:
+        return jsonify({"ok": False, "error": "Не удалось подтвердить Telegram-пользователя"}), 401
+
+    uid = str(tg_user["id"])
+    if is_blocked(uid):
+        return jsonify({"ok": False, "error": "Доступ к игре ограничен"}), 403
+
+    with db_lock:
+        player = data.get("players", {}).get(uid)
+        if not player:
+            return jsonify({"ok": False, "error": "Сначала запусти бота командой /start"}), 404
+        result = {
+            "ok": True,
+            "name": player.get("username") or tg_user.get("first_name") or "Игрок",
+            "balance": int(player.get("balance", 0)),
+            "short_id": player.get("short_id", 0),
+            "status": player.get("donate_status", "Нет")
+        }
+    return jsonify(result)
+
+
+@web_app.route("/health")
+def mini_app_health():
+    return jsonify({"ok": True, "service": "MON1 GAME Mini App"})
+
+
+def run_mini_app_server():
+    port = int(os.getenv("PORT", "3000"))
+    web_app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False, threaded=True)
+
+
 
 def is_blocked(uid):
     """ЧС / бан / мут — полная блокировка взаимодействия"""
@@ -165,6 +252,8 @@ def start(message):
     add_to_group_url = f"https://t.me/{bot_username}?startgroup=true"
 
     kb = InlineKeyboardMarkup(row_width=2)
+    if message.chat.type == "private":
+        kb.add(InlineKeyboardButton("🎮 Открыть MON1 GAME", web_app=WebAppInfo(url=WEBAPP_URL)))
     kb.add(
         InlineKeyboardButton("➕ Добавить бота в свой чат", url=add_to_group_url),
         InlineKeyboardButton("📖 Помощь", callback_data="start_help")
@@ -2011,4 +2100,5 @@ def admin_logs_cmd(message):
     bot.reply_to(message, "📋 Админ-логи:\n\n" + "\n".join(lines))
 
 print("BOT STARTED")
+threading.Thread(target=run_mini_app_server, daemon=True).start()
 bot.infinity_polling(skip_pending=True)
