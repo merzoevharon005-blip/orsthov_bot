@@ -6,11 +6,9 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, LabeledPri
 
 TOKEN = os.getenv("BOT_TOKEN")
 if not TOKEN: raise ValueError("Не задан BOT_TOKEN")
-
 ADMIN_IDS = [8211650013, 6940877915]
 DATA_DIR = pathlib.Path("/app/data"); DATA_DIR.mkdir(parents=True, exist_ok=True)
 DATA_FILE = DATA_DIR / "database.json"
-
 data = {"players": {}, "promos": {}, "activations": [], "history": [], "clans": {}, "next_id": 1, "active_games": {}, "roulette_bets": {}, "roulette_log": [], "duels": {}, "banned": {}, "muted": {}, "blacklist": {}, "reports": [], "admin_logs": []}
 db_lock = threading.Lock()
 
@@ -27,7 +25,6 @@ def save_data():
     with db_lock:
         with open(DATA_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
-
 load_data()
 
 def migrate_data():
@@ -36,8 +33,7 @@ def migrate_data():
     current_max = max([p.get("short_id", 0) for p in data["players"].values() if isinstance(p.get("short_id"), int)], default=0)
     if data.get("next_id", 1) <= current_max: data["next_id"] = current_max + 1
     for uid, pdata in data["players"].items():
-        if "short_id" not in pdata or pdata["short_id"] == 0:
-            pdata["short_id"] = data["next_id"]; data["next_id"] += 1; changed = True
+        if "short_id" not in pdata or pdata["short_id"] == 0: pdata["short_id"] = data["next_id"]; data["next_id"] += 1; changed = True
         if "bank" not in pdata: pdata["bank"] = 0; pdata["deposit"] = 0; pdata["deposit_start"] = 0; changed = True
         if "biz_territory" not in pdata: pdata["biz_territory"] = 0; pdata["biz_building"] = 1; pdata["biz_tax"] = 0; pdata["biz_last_collect"] = int(time.time()); changed = True
         if "title" not in pdata: pdata["title"] = "Нет"; changed = True
@@ -50,17 +46,14 @@ def migrate_data():
     for key in ("activations", "reports", "admin_logs", "roulette_log"):
         if key not in data: data[key] = []
     if changed: save_data()
-
 migrate_data()
 data.setdefault("mini_sessions", {})
 bot = telebot.TeleBot(TOKEN)
 
 # ==================== TELEGRAM MINI APP ====================
-
 WEBAPP_URL = os.getenv("WEBAPP_URL", "https://bot-1794808232-3061-mon1x.bothost.tech")
 WEBAPP_DIR = pathlib.Path(__file__).parent / "webapp"
 web_app = Flask(__name__, static_folder=None)
-
 
 def validate_telegram_init_data(init_data: str):
     if not init_data or len(init_data) > 10000: return None
@@ -77,13 +70,10 @@ def validate_telegram_init_data(init_data: str):
         user = json.loads(parsed.get("user", "{}"))
         if not user.get("id"): return None
         return user
-    except (ValueError, TypeError, json.JSONDecodeError):
-        return None
-
+    except (ValueError, TypeError, json.JSONDecodeError): return None
 
 @web_app.route("/")
 def mini_app_index(): return send_from_directory(WEBAPP_DIR, "index.html")
-
 
 @web_app.route("/api/me", methods=["POST"])
 def mini_app_me():
@@ -98,7 +88,6 @@ def mini_app_me():
         result = {"ok": True, "name": player.get("username") or tg_user.get("first_name") or "Игрок", "balance": int(player.get("balance", 0)), "short_id": player.get("short_id", 0), "status": player.get("donate_status", "Нет"), "bonus_ready": int(time.time()) - int(player.get("last_bonus", 0)) >= 86400, "bonus_seconds_left": max(0, 86400 - (int(time.time()) - int(player.get("last_bonus", 0)))), "promo_count": len(data.get("promos", {}))}
     return jsonify(result)
 
-
 def mini_auth_user():
     payload = request.get_json(silent=True) or {}
     tg_user = validate_telegram_init_data(payload.get("initData", ""))
@@ -108,7 +97,6 @@ def mini_auth_user():
     if uid not in data.get("players", {}): return None, (jsonify({"ok": False, "error": "Сначала запусти бота командой /start"}), 404)
     return uid, None
 
-
 def take_bet(uid, amount):
     amount = int(amount)
     if amount < 100: return False, "Минимальная ставка — 100 🪙"
@@ -117,7 +105,6 @@ def take_bet(uid, amount):
     if int(player.get("balance", 0)) < amount: return False, "Недостаточно монет на балансе"
     player["balance"] = int(player.get("balance", 0)) - amount; save_data()
     return True, None
-
 
 @web_app.route("/api/bonus", methods=["POST"])
 def mini_app_bonus():
@@ -132,7 +119,6 @@ def mini_app_bonus():
     try: complete_quest(uid, "bonus")
     except Exception as e: print(f"Mini App bonus quest warning: {e}")
     return jsonify({"ok": True, "reward": reward, "balance": int(player["balance"]), "bonus_ready": False, "bonus_seconds_left": 86400})
-
 
 @web_app.route("/api/promo", methods=["POST"])
 def mini_app_promo():
@@ -150,16 +136,12 @@ def mini_app_promo():
     data["activations"].append(activation_key); save_data()
     return jsonify({"ok": True, "code": code, "reward": amount, "balance": int(data["players"][uid]["balance"])})
 
-
-# ==================== МИНЫ (Mini App) ====================
-
 def mines_multiplier(opened, bombs):
     total = 25; safe = total - bombs
     if opened <= 0: return 1.0
     m = 1.0
     for i in range(1, opened + 1): m *= (total - (i - 1)) / (safe - (i - 1))
     return round(0.97 * m, 2)
-
 
 @web_app.route("/api/mines/start", methods=["POST"])
 def mini_mines_start():
@@ -171,8 +153,7 @@ def mini_mines_start():
     if bombs not in (3, 5, 9): return jsonify({"ok": False, "error": "Выбери 3, 5 или 9 мин"}), 400
     sessions = data.setdefault("mini_sessions", {})
     for old_id, old in list(sessions.items()):
-        if old.get("user") == uid and old.get("type") == "mines" and old.get("active"):
-            return jsonify({"ok": False, "error": "Сначала заверши текущий раунд"}), 409
+        if old.get("user") == uid and old.get("type") == "mines" and old.get("active"): return jsonify({"ok": False, "error": "Сначала заверши текущий раунд"}), 409
     ok, msg = take_bet(uid, bet)
     if not ok: return jsonify({"ok": False, "error": msg}), 400
     sid = secrets.token_urlsafe(12)
@@ -180,7 +161,6 @@ def mini_mines_start():
     sessions[sid] = {"type": "mines", "user": uid, "mines": mines, "opened": [], "active": True, "bet": bet, "created": int(time.time())}
     save_data()
     return jsonify({"ok": True, "session": sid, "bombs": bombs, "opened": [], "active": True, "balance": int(data["players"][uid]["balance"])})
-
 
 @web_app.route("/api/mines/open", methods=["POST"])
 def mini_mines_open():
@@ -191,10 +171,8 @@ def mini_mines_open():
     try: cell = int(payload.get("cell", -1))
     except (TypeError, ValueError): cell = -1
     session = data.setdefault("mini_sessions", {}).get(sid)
-    if not session or session.get("type") != "mines" or session.get("user") != uid or not session.get("active"):
-        return jsonify({"ok": False, "error": "Раунд уже завершён. Начни новый."}), 404
-    if not 0 <= cell < 25 or cell in session["opened"]:
-        return jsonify({"ok": False, "error": "Эта клетка недоступна"}), 400
+    if not session or session.get("type") != "mines" or session.get("user") != uid or not session.get("active"): return jsonify({"ok": False, "error": "Раунд уже завершён. Начни новый."}), 404
+    if not 0 <= cell < 25 or cell in session["opened"]: return jsonify({"ok": False, "error": "Эта клетка недоступна"}), 400
     if cell in session["mines"]:
         session["active"] = False; save_data()
         return jsonify({"ok": True, "hit": True, "active": False, "opened": session["opened"], "mines": session["mines"], "balance": int(data["players"][uid]["balance"])})
@@ -209,7 +187,6 @@ def mini_mines_open():
     save_data()
     return jsonify({"ok": True, "hit": False, "active": True, "opened": session["opened"], "balance": int(data["players"][uid]["balance"])})
 
-
 @web_app.route("/api/mines/cashout", methods=["POST"])
 def mini_mines_cashout():
     uid, error = mini_auth_user()
@@ -217,8 +194,7 @@ def mini_mines_cashout():
     payload = request.get_json(silent=True) or {}
     sid = str(payload.get("session", ""))
     session = data.setdefault("mini_sessions", {}).get(sid)
-    if not session or session.get("type") != "mines" or session.get("user") != uid or not session.get("active"):
-        return jsonify({"ok": False, "error": "Раунд уже завершён"}), 404
+    if not session or session.get("type") != "mines" or session.get("user") != uid or not session.get("active"): return jsonify({"ok": False, "error": "Раунд уже завершён"}), 404
     if not session["opened"]: return jsonify({"ok": False, "error": "Открой хотя бы одну клетку"}), 400
     multiplier = mines_multiplier(len(session["opened"]), len(session["mines"]))
     win = int(session["bet"] * multiplier)
@@ -226,13 +202,10 @@ def mini_mines_cashout():
     session["active"] = False; save_data()
     return jsonify({"ok": True, "win": win, "multiplier": multiplier, "balance": int(data["players"][uid]["balance"])})
 
-
-# ==================== КРАШ (Mini App) — жёстче на 20% ====================
-
+# ==================== КРАШ (Mini App) ====================
 CRASH_MIN = 1.0
 CRASH_MAX = 4.8
 CRASH_SPEED = 0.36
-
 
 @web_app.route("/api/crash/start", methods=["POST"])
 def mini_crash_start():
@@ -243,15 +216,13 @@ def mini_crash_start():
     except (TypeError, ValueError): return jsonify({"ok": False, "error": "Некорректная ставка"}), 400
     sessions = data.setdefault("mini_sessions", {})
     for old_id, old in list(sessions.items()):
-        if old.get("user") == uid and old.get("type") == "crash" and old.get("active"):
-            return jsonify({"ok": False, "error": "Сначала заверши текущий раунд"}), 409
+        if old.get("user") == uid and old.get("type") == "crash" and old.get("active"): return jsonify({"ok": False, "error": "Сначала заверши текущий раунд"}), 409
     ok, msg = take_bet(uid, bet)
     if not ok: return jsonify({"ok": False, "error": msg}), 400
     sid = secrets.token_urlsafe(12)
     sessions[sid] = {"type": "crash", "user": uid, "crash_point": round(random.uniform(CRASH_MIN, CRASH_MAX), 2), "started": time.time(), "active": True, "bet": bet}
     save_data()
     return jsonify({"ok": True, "session": sid, "multiplier": 1.0, "balance": int(data["players"][uid]["balance"])})
-
 
 @web_app.route("/api/crash/state", methods=["POST"])
 def mini_crash_state():
@@ -260,18 +231,15 @@ def mini_crash_state():
     payload = request.get_json(silent=True) or {}
     sid = str(payload.get("session", ""))
     session = data.setdefault("mini_sessions", {}).get(sid)
-    if not session or session.get("type") != "crash" or session.get("user") != uid:
-        return jsonify({"ok": False, "error": "Раунд не найден"}), 404
+    if not session or session.get("type") != "crash" or session.get("user") != uid: return jsonify({"ok": False, "error": "Раунд не найден"}), 404
     if session.get("active"):
         elapsed = max(0.0, time.time() - float(session["started"]))
         current = 1.0 + elapsed * CRASH_SPEED
         crashed = current >= float(session["crash_point"])
-        if crashed:
-            current = float(session["crash_point"]); session["active"] = False; save_data()
+        if crashed: current = float(session["crash_point"]); session["active"] = False; save_data()
     else:
         current = float(session.get("crash_point", 1.0)); crashed = True
     return jsonify({"ok": True, "multiplier": round(current, 2), "active": bool(session.get("active")), "crashed": crashed, "balance": int(data["players"][uid]["balance"])})
-
 
 @web_app.route("/api/crash/cashout", methods=["POST"])
 def mini_crash_cashout():
@@ -280,32 +248,25 @@ def mini_crash_cashout():
     payload = request.get_json(silent=True) or {}
     sid = str(payload.get("session", ""))
     session = data.setdefault("mini_sessions", {}).get(sid)
-    if not session or session.get("type") != "crash" or session.get("user") != uid:
-        return jsonify({"ok": False, "error": "Раунд не найден"}), 404
+    if not session or session.get("type") != "crash" or session.get("user") != uid: return jsonify({"ok": False, "error": "Раунд не найден"}), 404
     if not session.get("active"): return jsonify({"ok": False, "error": "Раунд уже завершён"}), 400
     elapsed = max(0.0, time.time() - float(session["started"]))
     current = 1.0 + elapsed * CRASH_SPEED
-    if current >= float(session["crash_point"]):
-        session["active"] = False; save_data()
-        return jsonify({"ok": False, "error": "Краш случился — забрать не успел"}), 400
+    if current >= float(session["crash_point"]): session["active"] = False; save_data(); return jsonify({"ok": False, "error": "Краш случился — забрать не успел"}), 400
     multiplier = round(current, 2)
     win = int(session["bet"] * multiplier)
     data["players"][uid]["balance"] = int(data["players"][uid]["balance"]) + win
     session["active"] = False; save_data()
     return jsonify({"ok": True, "win": win, "multiplier": multiplier, "balance": int(data["players"][uid]["balance"])})
 
-
 @web_app.route("/health")
 def mini_app_health(): return jsonify({"ok": True, "service": "MON1 GAME Mini App"})
-
 
 def run_mini_app_server():
     port = int(os.getenv("PORT", "3000"))
     web_app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False, threaded=True)
 
-
 # ==================== УТИЛИТЫ ====================
-
 def is_blocked(uid):
     uid = str(uid)
     if uid in data.get("blacklist", {}): return "chs"
@@ -372,8 +333,7 @@ def complete_quest(uid, quest):
 
 def money_fmt(value): return f"{int(value):,}".replace(",", " ")
 
-# ==================== БЛОК ЧС/БАН/МУТ ====================
-
+# ==================== БЛОК ЧС ====================
 @bot.message_handler(func=lambda m: is_blocked(m.from_user.id) is not None, content_types=["text", "photo", "video", "sticker", "voice", "document", "audio"])
 def block_restricted(message):
     status = is_blocked(message.from_user.id)
@@ -393,8 +353,6 @@ def block_restricted_cb(call):
         try: bot.answer_callback_query(call.id, "🔇 Вы в муте.", show_alert=True)
         except: pass
 
-# ==================== КОМАНДА /чс ====================
-
 @bot.message_handler(commands=['chs', 'чс', 'blacklist'])
 def cmd_chs(message):
     if message.from_user.id not in ADMIN_IDS: return
@@ -409,8 +367,7 @@ def cmd_chs(message):
             sid = data["players"].get(uid, {}).get("short_id", "?")
             reason = info.get("reason", "—") if isinstance(info, dict) else "—"
             lines.append(f"• `{sid}` — {nick} ({reason})")
-        lines.append(f"\nВсего: {len(bl)}")
-        lines.append("\nДобавить: `/чс ID причина`\nУбрать: `/чс - ID`")
+        lines.append(f"\nВсего: {len(bl)}\nДобавить: `/чс ID причина`\nУбрать: `/чс - ID`")
         return bot.reply_to(message, "\n".join(lines), parse_mode="Markdown")
     if args.startswith("-"):
         target = args[1:].strip(); target_uid = get_user_by_short_id(target)
@@ -425,22 +382,20 @@ def cmd_chs(message):
     if target_uid in ADMIN_IDS: return bot.reply_to(message, "❌ Нельзя админа в ЧС.")
     data["blacklist"][target_uid] = {"reason": reason, "by": str(message.from_user.id), "time": int(time.time())}
     add_admin_log("chs_add", message.from_user.id, target_uid, reason); save_data()
-    bot.reply_to(message, f"🚫 `{target}` в ЧС.\nПричина: {reason}\n\nБот игнорирует его полностью.", parse_mode="Markdown")
-    try: bot.send_message(int(target_uid), "🚫 Вы заблокированы в MON1 GAME (ЧС).")
+    bot.reply_to(message, f"🚫 `{target}` в ЧС.\nПричина: {reason}", parse_mode="Markdown")
+    try: bot.send_message(int(target_uid), "🚫 Вы заблокированы (ЧС).")
     except: pass
 
 # ==================== СТАРТ ====================
-
 @bot.message_handler(commands=["start"])
 def start(message):
     register_user(message.from_user)
     bot_username = bot.get_me().username
     add_to_group_url = f"https://t.me/{bot_username}?startgroup=true"
     kb = InlineKeyboardMarkup(row_width=2)
-    if message.chat.type == "private":
-        kb.add(InlineKeyboardButton("🎮 Открыть MON1 GAME", web_app=WebAppInfo(url=WEBAPP_URL)))
+    if message.chat.type == "private": kb.add(InlineKeyboardButton("🎮 Открыть MON1 GAME", web_app=WebAppInfo(url=WEBAPP_URL)))
     kb.add(InlineKeyboardButton("➕ Добавить бота в чат", url=add_to_group_url), InlineKeyboardButton("📖 Помощь", callback_data="start_help"))
-    bot.send_message(message.chat.id, f"🎮 **MON1 GAME RPG**\n👋 **{get_nick(message.from_user.id)}**!\n\n🚀 Играй, развивайся, выполняй задания, открывай бизнес и создавай кланы.\n\n🌐 Канал: https://t.me/mon1bots\n💬 Чат: https://t.me/mon1not\n\n👇", reply_markup=kb, parse_mode="Markdown")
+    bot.send_message(message.chat.id, f"🎮 **MON1 GAME RPG**\n👋 **{get_nick(message.from_user.id)}**!\n\n🚀 Играй, развивайся, выполняй задания, открывай бизнес и создавай кланы.\n\n🌐 Канал: https://t.me/mon1bots\n💬 Чат: https://t.me/mon1not", reply_markup=kb, parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data == "start_help")
 def start_help_callback(call):
@@ -449,8 +404,7 @@ def start_help_callback(call):
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("home_"))
 def home_callbacks(call):
-    action = call.data[5:]
-    uid = str(call.from_user.id)
+    action = call.data[5:]; uid = str(call.from_user.id)
     if uid not in data["players"]: register_user(call.from_user)
     if action == "balance": bot.answer_callback_query(call.id, f"Баланс: {get_balance(uid):,} 🪙", show_alert=True)
     elif action == "business":
@@ -460,9 +414,7 @@ def home_callbacks(call):
             bot.send_message(call.message.chat.id, f"🏢 **БИЗНЕС**\nПострой за **{BIZ_TERRITORY_COST[0]:,} 🪙**.", reply_markup=kb, parse_mode="Markdown")
         else: show_biz_menu(call.message.chat.id, uid, None)
     elif action == "quests": bot.answer_callback_query(call.id, "Квесты: команда «квесты».", show_alert=True)
-    elif action == "help":
-        bot.answer_callback_query(call.id)
-        bot.send_message(call.message.chat.id, "📚 **ПОМОЩЬ**", reply_markup=help_keyboard(), parse_mode="Markdown")
+    elif action == "help": bot.answer_callback_query(call.id); bot.send_message(call.message.chat.id, "📚 **ПОМОЩЬ**", reply_markup=help_keyboard(), parse_mode="Markdown")
     elif action == "profile": bot.answer_callback_query(call.id, "Профиль: команда «профиль».", show_alert=True)
     elif action == "clan": bot.answer_callback_query(call.id, "Клан: команда «мой клан».", show_alert=True)
 
@@ -477,7 +429,8 @@ def help_keyboard():
 @bot.message_handler(func=lambda m: m.text and m.text.lower().strip() in ['помощь', 'help'])
 def help_command(message):
     bot.reply_to(message, "📚 **ПУТЕВОДИТЕЛЬ MON1 GAME**\n👇 Выбери раздел:", reply_markup=help_keyboard(), parse_mode="Markdown")
-    @bot.callback_query_handler(func=lambda call: call.data.startswith("help_"))
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("help_"))
 def help_callbacks(call):
     section = call.data.split("_", 1)[1]
     pages = {
@@ -895,6 +848,7 @@ def rps_choice_text(message):
     bot.reply_to(message, f"✅ **{RPS_MAP.get(choice, choice)} {choice}**\nЖдём...", parse_mode="Markdown")
     if duel.get("choice1") and duel.get("choice2"): resolve_rps_duel(duel_id, duel)
 
+
 # ==================== АДМИН-ПАНЕЛЬ ====================
 
 @bot.message_handler(commands=['admin'])
@@ -999,7 +953,7 @@ def admin_broadcast_step(message):
         except: pass
     bot.reply_to(message, f"✅ Рассылка отправлена {success} игрокам.")
 
-# ==================== СТАРЫЕ АДМИН-КОМАНДЫ ====================
+# ==================== WIPE / RESET / GET_PROFILE ====================
 
 @bot.message_handler(commands=['wipe'])
 def wipe_command(message):
@@ -1287,7 +1241,6 @@ def start_crash(message):
         bet = int(message.text.split()[1])
         if bet <= 0 or get_balance(uid) < bet: return bot.reply_to(message, "❌ Мало.")
         add_balance(uid, -bet); gid = str(random.randint(10000, 99999))
-        # -20% к потолку (было 1.1-10.0)
         data["active_games"][gid] = {"type": "crash", "user": uid, "bet": bet, "crash_point": round(random.uniform(1.0, 8.0), 2), "current": 1.0, "active": True}; save_data()
         kb = InlineKeyboardMarkup().add(InlineKeyboardButton("💰 ЗАБРАТЬ", callback_data=f"ccash_{gid}"))
         msg = bot.reply_to(message, f"🚀 **CRASH**\nСтавка: {bet}\nКоэф: x1.00", reply_markup=kb)
@@ -1300,7 +1253,7 @@ def crash_loop(gid, uid, cid, mid):
     while True:
         g = data["active_games"].get(gid)
         if not g or not g.get("active"): break
-        g["current"] = round(g["current"] + 0.12, 2); save_data()  # было 0.10 → +20%
+        g["current"] = round(g["current"] + 0.12, 2); save_data()
         if g["current"] >= g["crash_point"] or random.random() < 0.06:
             g["active"] = False; save_data()
             try: bot.edit_message_text(f"💥 **КРАШ на x{g['current']:.2f}!**\nПотеряно {g['bet']} 🪙.", cid, mid, reply_markup=None, parse_mode="Markdown")
@@ -1407,12 +1360,10 @@ def roulette_cancel(message):
     chat_id = str(message.chat.id)
     bets = data.get("roulette_bets", {}).get(chat_id, [])
     user_bets = [b for b in bets if str(b.get("user")) == uid]
-    if not user_bets:
-        return bot.reply_to(message, "❌ У тебя нет подготовленных ставок на рулетку.")
+    if not user_bets: return bot.reply_to(message, "❌ У тебя нет подготовленных ставок на рулетку.")
     refund = sum(int(b["bet"]) * len(b["targets"]) for b in user_bets)
     data["roulette_bets"][chat_id] = [b for b in bets if str(b.get("user")) != uid]
-    add_balance(uid, refund)
-    save_data()
+    add_balance(uid, refund); save_data()
     bot.reply_to(message, f"↩️ Ставки отменены. Возвращено: **{refund:,} 🪙**", parse_mode="Markdown")
 
 @bot.message_handler(func=lambda m: m.text and m.text.lower().strip() == "го")
@@ -1450,28 +1401,23 @@ def roulette_go(message):
         else:
             results.append(f"❌ {get_nick(b['user'])} -{b['bet'] * len(b['targets'])}"); log_entries.append({"user": b["user"], "win": -b["bet"] * len(b["targets"]), "bet": b["bet"]})
         total_win += u_win
-
-    # Логирование рулетки (последние 200)
     data["roulette_log"].append({"time": int(time.time()), "chat": chat_id, "win_num": win_num, "color": wc, "entries": log_entries, "total_win": total_win})
     if len(data["roulette_log"]) > 200: data["roulette_log"] = data["roulette_log"][-200:]
     save_data()
-
     res_text = "\n".join(results)
     bot.reply_to(message, f"🎰 Результат: {sym} **{win_num}**\n\n{res_text}\n\n💰 Общий выигрыш: {total_win} 🪙\n\n📜 Лог: `лог рулетки`", parse_mode="Markdown")
 
 @bot.message_handler(func=lambda m: m.text and m.text.lower().strip() in ["лог рулетки", "рулетка лог", "лог"])
 def roulette_log_cmd(message):
     log = data.get("roulette_log", [])
-    if not log:
-        return bot.reply_to(message, "📭 История рулетки пуста.")
+    if not log: return bot.reply_to(message, "📭 История рулетки пуста.")
     last = log[-10:]
     lines = ["📜 **ЛОГ РУЛЕТКИ** (последние 10)\n"]
     for entry in reversed(last):
         t = time.strftime("%d.%m %H:%M", time.localtime(entry["time"]))
         sym = {"green": "🟢", "red": "🔴", "black": "⚫️"}.get(entry.get("color", ""), "⚪")
         lines.append(f"🕐 {t} | {sym} {entry['win_num']} | 💰 {entry['total_win']} 🪙")
-    lines.append(f"\nВсего записей: {len(log)}")
-    lines.append("Сброс: `лог рулетки сброс` (админ)")
+    lines.append(f"\nВсего записей: {len(log)}\nСброс: `лог рулетки сброс` (админ)")
     bot.reply_to(message, "\n".join(lines), parse_mode="Markdown")
 
 @bot.message_handler(func=lambda m: m.text and m.text.lower().strip() == "лог рулетки сброс")
@@ -1498,16 +1444,8 @@ def show_biz_menu(chat_id, uid, msg_id):
     p = data["players"].get(uid, {}); t = p.get("biz_territory", 0); b = p.get("biz_building", 1); tax = p.get("biz_tax", 0)
     inc = calc_biz_income(t, b)
     earned = int((min(int(time.time()) - p.get("biz_last_collect", int(time.time())), 86400) / 3600) * inc)
-    next_terr = BIZ_TERRITORY_COST.get(t, "MAX")
-    next_build = BIZ_BUILDING_COST.get(b, "MAX")
-    text = (f"🏢 **МОЙ БИЗНЕС**\n\n"
-            f"📍 **Территория:** {t} ур. · Следующее: **{next_terr} 🪙**\n"
-            f"🏗 **Здание:** {b} ур. · Следующее: **{next_build} 🪙**\n\n"
-            f"📈 Доход: **{inc:,} 🪙 / час**\n"
-            f"💰 Накоплено: **{earned:,} 🪙**\n"
-            f"🧾 Налог при снятии: **25%**\n"
-            f"🧾 Налог к оплате: **{tax:,} 🪙**\n\n"
-            f"💡 Собирай доход и своевременно оплачивай налоги.")
+    next_terr = BIZ_TERRITORY_COST.get(t, "MAX"); next_build = BIZ_BUILDING_COST.get(b, "MAX")
+    text = (f"🏢 **МОЙ БИЗНЕС**\n\n📍 **Территория:** {t} ур. · Следующее: **{next_terr} 🪙**\n🏗 **Здание:** {b} ур. · Следующее: **{next_build} 🪙**\n\n📈 Доход: **{inc:,} 🪙 / час**\n💰 Накоплено: **{earned:,} 🪙**\n🧾 Налог при снятии: **25%**\n🧾 Налог к оплате: **{tax:,} 🪙**\n\n💡 Собирай доход и своевременно оплачивай налоги.")
     kb = InlineKeyboardMarkup(row_width=2)
     kb.add(InlineKeyboardButton("💰 Собрать доход", callback_data="biz_collect"), InlineKeyboardButton("🧾 Оплатить налог", callback_data="biz_tax"))
     kb.add(InlineKeyboardButton("📍 Расширить территорию", callback_data="biz_terr"), InlineKeyboardButton("🏗 Улучшить здание", callback_data="biz_build_up"))
@@ -1519,26 +1457,16 @@ def biz_callback(call):
     uid = str(call.from_user.id); act = call.data[4:]
     if act == "build":
         if get_balance(uid) < BIZ_TERRITORY_COST[0]: return bot.answer_callback_query(call.id, "❌ Мало денег!", show_alert=True)
-        add_balance(uid, -BIZ_TERRITORY_COST[0])
-        data["players"][uid]["biz_territory"] = 1
-        data["players"][uid]["biz_building"] = 1
-        data["players"][uid]["biz_tax"] = 0
-        data["players"][uid]["biz_last_collect"] = int(time.time())
-        save_data()
-        bot.answer_callback_query(call.id, "✅ Построено!")
-        show_biz_menu(call.message.chat.id, uid, call.message.message_id)
+        add_balance(uid, -BIZ_TERRITORY_COST[0]); data["players"][uid]["biz_territory"] = 1; data["players"][uid]["biz_building"] = 1; data["players"][uid]["biz_tax"] = 0; data["players"][uid]["biz_last_collect"] = int(time.time()); save_data()
+        bot.answer_callback_query(call.id, "✅ Построено!"); show_biz_menu(call.message.chat.id, uid, call.message.message_id)
     elif act == "collect":
         p = data["players"].get(uid, {}); t = p.get("biz_territory", 0); b = p.get("biz_building", 1); tax = p.get("biz_tax", 0)
         if tax > 0: return bot.answer_callback_query(call.id, f"❌ Оплатите налоги ({tax} 🪙)!", show_alert=True)
-        inc = calc_biz_income(t, b)
-        earned = int((min(int(time.time()) - p.get("biz_last_collect", int(time.time())), 86400) / 3600) * inc)
+        inc = calc_biz_income(t, b); earned = int((min(int(time.time()) - p.get("biz_last_collect", int(time.time())), 86400) / 3600) * inc)
         if earned <= 0: return bot.answer_callback_query(call.id, "⏳ Пусто.", show_alert=True)
         tax_o = int(earned * 0.25); received = earned - tax_o
-        add_balance(uid, received)
-        data["players"][uid]["biz_last_collect"] = int(time.time())
-        save_data()
-        bot.answer_callback_query(call.id, f"💰 Получено: {received} 🪙. Налог 25%: {tax_o} 🪙", show_alert=True)
-        show_biz_menu(call.message.chat.id, uid, call.message.message_id)
+        add_balance(uid, received); data["players"][uid]["biz_last_collect"] = int(time.time()); save_data()
+        bot.answer_callback_query(call.id, f"💰 Получено: {received} 🪙. Налог 25%: {tax_o} 🪙", show_alert=True); show_biz_menu(call.message.chat.id, uid, call.message.message_id)
     elif act == "terr":
         p = data["players"].get(uid, {}); t = p.get("biz_territory", 0)
         if t >= 5: return bot.answer_callback_query(call.id, "🧱 MAX!", show_alert=True)
@@ -1572,12 +1500,9 @@ def bank_daily_rate(player):
     return 0.10
 
 def bank_deposit_snapshot(player, now=None):
-    now = int(now or time.time())
-    principal = int(player.get("deposit", 0) or 0)
-    started = int(player.get("deposit_start", 0) or 0)
+    now = int(now or time.time()); principal = int(player.get("deposit", 0) or 0); started = int(player.get("deposit_start", 0) or 0)
     if principal <= 0 or started <= 0: return 0, 0, 0
-    rate = float(player.get("deposit_rate", bank_daily_rate(player)))
-    elapsed_days = max(0, (now - started) // 86400)
+    rate = float(player.get("deposit_rate", bank_daily_rate(player))); elapsed_days = max(0, (now - started) // 86400)
     interest = int(principal * rate * elapsed_days)
     return interest, principal + interest, started + BANK_TERM_SECONDS
 
@@ -1585,34 +1510,19 @@ def bank_deposit_snapshot(player, now=None):
 def bank_info(message):
     uid = str(message.from_user.id)
     if uid not in data["players"]: register_user(message.from_user)
-    p = data["players"][uid]; now = int(time.time())
-    bank_money = int(p.get("bank", 0) or 0)
-    deposit = int(p.get("deposit", 0) or 0)
-    rate = float(p.get("deposit_rate", bank_daily_rate(p)))
-    interest, projected_total, available_at = bank_deposit_snapshot(p, now)
-    if uid in [str(x) for x in ADMIN_IDS]: status_label = "Администратор"
-    else:
-        status_label = p.get("donate_status", "Нет статуса")
-        if status_label == "Нет": status_label = "Обычный игрок"
+    p = data["players"][uid]; now = int(time.time()); bank_money = int(p.get("bank", 0) or 0); deposit = int(p.get("deposit", 0) or 0)
+    rate = float(p.get("deposit_rate", bank_daily_rate(p))); interest, projected_total, available_at = bank_deposit_snapshot(p, now)
+    status_label = "Администратор" if uid in [str(x) for x in ADMIN_IDS] else p.get("donate_status", "Обычный игрок")
     owner = p.get("username") or message.from_user.first_name or "Игрок"
     if deposit > 0:
-        withdraw_date = time.strftime("%d.%m.%y в %H:%M:%S", time.localtime(available_at))
-        deposit_line = (f"💎 **Под депозитом:** {money_fmt(projected_total)} 🪙\n"
-                        f"📈 Начислено процентов: +{money_fmt(interest)} 🪙\n"
-                        f"📅 **Можно снять:** {withdraw_date}")
-    else:
-        deposit_line = "💎 **Под депозитом:** 0 🪙\n📅 Действующий депозит отсутствует."
-    text = (f"🏦 **БАНК MON1 GAME**\n"
-            f"👤 Владелец: **{owner}**\n"
-            f"💳 Статус: **{status_label}**\n\n"
-            f"💰 На руках: **{money_fmt(get_balance(uid))} 🪙**\n"
-            f"🏦 В банке: **{money_fmt(bank_money)} 🪙**\n"
-            f"{deposit_line}\n\n"
-            f"📊 Ставка: **{int(rate*100)}% в день**\n"
-            f"⏱ Срок депозита: **3 дня**\n"
-            f"💸 Комиссия при выводе: **{int(BANK_WITHDRAW_TAX*100)}%**")
+        withdraw_date = time.strftime("%d.%m.%y %H:%M", time.localtime(available_at))
+        deposit_line = f"💎 **Депозит:** {money_fmt(projected_total)} 🪙\n📈 +{money_fmt(interest)} 🪙\n📅 Снять: {withdraw_date}"
+    else: deposit_line = "💎 **Депозита нет.**"
+    text = (f"🏦 **БАНК MON1 GAME**\n👤 Владелец: **{owner}**\n💳 Статус: **{status_label}**\n\n"
+            f"💰 На руках: **{money_fmt(get_balance(uid))} 🪙**\n🏦 В банке: **{money_fmt(bank_money)} 🪙**\n{deposit_line}\n\n"
+            f"📊 Ставка: **{int(rate*100)}% в день**\n⏱ Срок: **3 дня**\n💸 Комиссия: **{int(BANK_WITHDRAW_TAX*100)}%**")
     kb = InlineKeyboardMarkup(row_width=2)
-    kb.add(InlineKeyboardButton("💰 Положить в банк", callback_data="bank_put"), InlineKeyboardButton("💸 Снять из банка", callback_data="bank_take"))
+    kb.add(InlineKeyboardButton("💰 Положить", callback_data="bank_put"), InlineKeyboardButton("💸 Снять", callback_data="bank_take"))
     kb.add(InlineKeyboardButton("💎 Открыть депозит", callback_data="bank_deposit"), InlineKeyboardButton("📈 Закрыть депозит", callback_data="bank_withdraw"))
     bot.reply_to(message, text, reply_markup=kb, parse_mode="Markdown")
 
@@ -1620,26 +1530,18 @@ def bank_info(message):
 def bank_callbacks(call):
     uid = str(call.from_user.id); act = call.data
     if act == "bank_put":
-        msg = bot.send_message(call.message.chat.id, "💰 Введи сумму для пополнения банка:")
-        bot.register_next_step_handler(msg, bank_put_step); bot.answer_callback_query(call.id)
+        msg = bot.send_message(call.message.chat.id, "💰 Введи сумму для пополнения банка:"); bot.register_next_step_handler(msg, bank_put_step); bot.answer_callback_query(call.id)
     elif act == "bank_take":
-        msg = bot.send_message(call.message.chat.id, "💸 Введи сумму для снятия из банка:")
-        bot.register_next_step_handler(msg, bank_take_step); bot.answer_callback_query(call.id)
+        msg = bot.send_message(call.message.chat.id, "💸 Введи сумму для снятия из банка:"); bot.register_next_step_handler(msg, bank_take_step); bot.answer_callback_query(call.id)
     elif act == "bank_deposit":
-        msg = bot.send_message(call.message.chat.id, "💎 Введи сумму для депозита (мин. 1000 🪙, срок 3 дня):")
-        bot.register_next_step_handler(msg, bank_deposit_step); bot.answer_callback_query(call.id)
+        msg = bot.send_message(call.message.chat.id, "💎 Введи сумму (мин. 1000 🪙, срок 3 дня):"); bot.register_next_step_handler(msg, bank_deposit_step); bot.answer_callback_query(call.id)
     elif act == "bank_withdraw":
-        p = data["players"].get(uid, {})
-        principal = int(p.get("deposit", 0) or 0)
-        started = int(p.get("deposit_start", 0) or 0)
+        p = data["players"].get(uid, {}); principal = int(p.get("deposit", 0) or 0); started = int(p.get("deposit_start", 0) or 0)
         if principal <= 0: return bot.answer_callback_query(call.id, "❌ У тебя нет активного депозита.", show_alert=True)
         if int(time.time()) < started + BANK_TERM_SECONDS:
-            left = (started + BANK_TERM_SECONDS) - int(time.time())
-            return bot.answer_callback_query(call.id, f"⏳ Депозит закроется через {left//86400} д. {(left%86400)//3600} ч.", show_alert=True)
-        interest, total, _ = bank_deposit_snapshot(p)
-        tax = int(total * BANK_WITHDRAW_TAX); received = total - tax
-        add_balance(uid, received)
-        data["players"][uid]["deposit"] = 0; data["players"][uid]["deposit_start"] = 0; save_data()
+            left = (started + BANK_TERM_SECONDS) - int(time.time()); return bot.answer_callback_query(call.id, f"⏳ За跨 {left//86400} д. {(left%86400)//3600} ч.", show_alert=True)
+        interest, total, _ = bank_deposit_snapshot(p); tax = int(total * BANK_WITHDRAW_TAX); received = total - tax
+        add_balance(uid, received); data["players"][uid]["deposit"] = 0; data["players"][uid]["deposit_start"] = 0; save_data()
         bot.edit_message_text(f"✅ **Депозит закрыт!**\n💎 Итого: {money_fmt(total)} 🪙\n📈 Проценты: +{money_fmt(interest)} 🪙\n💸 Комиссия: -{money_fmt(tax)} 🪙\n💰 Получено: **{money_fmt(received)} 🪙**", call.message.chat.id, call.message.message_id, parse_mode="Markdown")
         bot.answer_callback_query(call.id, "✅ Депозит закрыт!")
 
@@ -1648,10 +1550,8 @@ def bank_put_step(message):
     try:
         amount = int(message.text.replace(" ", "").replace(",", ""))
         if amount <= 0: return bot.reply_to(message, "❌ Сумма должна быть больше 0.")
-        if get_balance(uid) < amount: return bot.reply_to(message, "❌ Недостаточно средств на руках.")
-        add_balance(uid, -amount)
-        data["players"][uid]["bank"] = int(data["players"][uid].get("bank", 0)) + amount
-        save_data()
+        if get_balance(uid) < amount: return bot.reply_to(message, "❌ Недостаточно средств.")
+        add_balance(uid, -amount); data["players"][uid]["bank"] = int(data["players"][uid].get("bank", 0)) + amount; save_data()
         bot.reply_to(message, f"✅ В банк положено: **{amount:,} 🪙**", parse_mode="Markdown")
     except: bot.reply_to(message, "❌ Введи число.")
 
@@ -1662,9 +1562,7 @@ def bank_take_step(message):
         if amount <= 0: return bot.reply_to(message, "❌ Сумма должна быть больше 0.")
         bank = int(data["players"][uid].get("bank", 0))
         if bank < amount: return bot.reply_to(message, "❌ Недостаточно средств в банке.")
-        add_balance(uid, amount)
-        data["players"][uid]["bank"] = bank - amount
-        save_data()
+        add_balance(uid, amount); data["players"][uid]["bank"] = bank - amount; save_data()
         bot.reply_to(message, f"✅ Из банка снято: **{amount:,} 🪙**", parse_mode="Markdown")
     except: bot.reply_to(message, "❌ Введи число.")
 
@@ -1675,74 +1573,46 @@ def bank_deposit_step(message):
         if amount < 1000: return bot.reply_to(message, "❌ Минимум 1000 🪙.")
         p = data["players"][uid]
         if int(p.get("deposit", 0)) > 0: return bot.reply_to(message, "❌ У тебя уже есть активный депозит.")
-        if get_balance(uid) < amount: return bot.reply_to(message, "❌ Недостаточно средств на руках.")
-        add_balance(uid, -amount)
-        p["deposit"] = amount; p["deposit_start"] = int(time.time()); p["deposit_rate"] = bank_daily_rate(p)
-        save_data()
+        if get_balance(uid) < amount: return bot.reply_to(message, "❌ Недостаточно средств.")
+        add_balance(uid, -amount); p["deposit"] = amount; p["deposit_start"] = int(time.time()); p["deposit_rate"] = bank_daily_rate(p); save_data()
         bot.reply_to(message, f"✅ **Депозит открыт!**\n💎 Сумма: {amount:,} 🪙\n📈 Ставка: {int(bank_daily_rate(p)*100)}% в день\n⏱ Срок: 3 дня", parse_mode="Markdown")
     except: bot.reply_to(message, "❌ Введи число.")
 
-# ==================== ПЕРЕВОДЫ И КВЕСТЫ ====================
+# ==================== ПЕРЕВОДЫ / КВЕСТЫ ====================
 
 @bot.message_handler(func=lambda m: m.text and m.text.lower().startswith("перевод"))
 def transfer_cmd(message):
     uid = str(message.from_user.id)
     try:
-        parts = message.text.split()
-        amount = int(parts[1].replace(" ", "").replace(",", ""))
-        target = parts[2]
+        parts = message.text.split(); amount = int(parts[1].replace(" ", "").replace(",", "")); target = parts[2]
         if amount < 100: return bot.reply_to(message, "❌ Минимум 100 🪙.")
         if get_balance(uid) < amount: return bot.reply_to(message, "❌ Недостаточно средств.")
-        target_uid = None
-        if target.startswith("@"): target_uid = get_user_by_username(target)
-        else:
-            try: target_uid = get_user_by_short_id(int(target))
-            except: pass
+        target_uid = get_user_by_username(target) if target.startswith("@") else (get_user_by_short_id(int(target)) if target.isdigit() else None)
         if not target_uid: return bot.reply_to(message, "❌ Получатель не найден.")
         if target_uid == uid: return bot.reply_to(message, "❌ Себе переводить нельзя.")
-        add_balance(uid, -amount)
-        add_balance(target_uid, amount)
+        add_balance(uid, -amount); add_balance(target_uid, amount)
         bot.reply_to(message, f"✅ Перевод **{amount:,} 🪙** → **{get_nick(target_uid)}**", parse_mode="Markdown")
         try: bot.send_message(int(target_uid), f"💰 Тебе перевели **{amount:,} 🪙** от **{get_nick(uid)}**", parse_mode="Markdown")
         except: pass
     except: bot.reply_to(message, "❌ `перевод 1000 @ник` или `перевод 1000 ID`", parse_mode="Markdown")
 
-QUESTS = {
-    "bonus":  {"name": "Получить бонус",  "reward": 500},
-    "slot":   {"name": "Сыграть в слот",  "reward": 200},
-    "mines":  {"name": "Сыграть в мины",  "reward": 200},
-    "crash":  {"name": "Сыграть в краш",  "reward": 200},
-    "joker":  {"name": "Сыграть в джокер", "reward": 200},
-}
+QUESTS = {"bonus": {"name": "Получить бонус", "reward": 500}, "slot": {"name": "Сыграть в слот", "reward": 200}, "mines": {"name": "Сыграть в мины", "reward": 200}, "crash": {"name": "Сыграть в краш", "reward": 200}, "joker": {"name": "Сыграть в джокер", "reward": 200}}
 
 @bot.message_handler(func=lambda m: m.text and m.text.lower().strip() == "квесты")
 def quests_cmd(message):
-    uid = str(message.from_user.id)
-    p = data["players"].get(uid, {})
-    done = p.get("quests", {})
+    uid = str(message.from_user.id); p = data["players"].get(uid, {}); done = p.get("quests", {})
     lines = ["📜 **КВЕСТЫ**\n"]
-    for key, q in QUESTS.items():
-        mark = "✅" if done.get(key) else "⭕"
-        lines.append(f"{mark} {q['name']} — +{q['reward']} 🪙")
+    for key, q in QUESTS.items(): lines.append(f"{'✅' if done.get(key) else '⭕'} {q['name']} — +{q['reward']} 🪙")
     lines.append("\nЗабери награду: `забрать квест`")
     bot.reply_to(message, "\n".join(lines), parse_mode="Markdown")
 
 @bot.message_handler(func=lambda m: m.text and m.text.lower().strip() == "забрать квест")
 def claim_quest_cmd(message):
-    uid = str(message.from_user.id)
-    p = data["players"].get(uid, {})
-    done = p.get("quests", {})
-    claimed = p.get("quests_claimed", {})
-    total = 0
+    uid = str(message.from_user.id); p = data["players"].get(uid, {}); done = p.get("quests", {}); claimed = p.get("quests_claimed", {}); total = 0
     for key, q in QUESTS.items():
-        if done.get(key) and not claimed.get(key):
-            total += q["reward"]
-            claimed[key] = True
-    if total <= 0:
-        return bot.reply_to(message, "❌ Нет доступных наград.")
-    p["quests_claimed"] = claimed
-    add_balance(uid, total)
-    save_data()
+        if done.get(key) and not claimed.get(key): total += q["reward"]; claimed[key] = True
+    if total <= 0: return bot.reply_to(message, "❌ Нет доступных наград.")
+    p["quests_claimed"] = claimed; add_balance(uid, total); save_data()
     bot.reply_to(message, f"🎁 **КВЕСТЫ ЗАБРАНЫ!**\n💰 Получено: **{total:,} 🪙**", parse_mode="Markdown")
 
 # ==================== ЗАПУСК ====================
