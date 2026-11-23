@@ -502,7 +502,8 @@ def duel_accept_text(message):
     except: pass
     send_choice_buttons(challenger, duel_id); send_choice_buttons(opponent, duel_id)
 
-@bot.message_handler(func=lambda m: m.text and m.text.lower().strip() in ["отклонить", "no", "отмена"]) # Изменил "отмена" для дуэли (может конфликтовать с рулеткой)
+# ВАЖНО: "отмена" убрана из этого хэндлера, чтобы не перехватывать команду рулетки
+@bot.message_handler(func=lambda m: m.text and m.text.lower().strip() in ["отклонить", "no"])
 def duel_reject_text(message):
     uid = str(message.from_user.id); duel_id, duel = find_pending_duel_for(uid)
     if not duel: return
@@ -1032,8 +1033,6 @@ def joker_cash(call):
 
 # ==================== РУЛЕТКА (ОБНОВЛЕННАЯ) ====================
 
-# ==================== РУЛЕТКА (ОБНОВЛЕННАЯ) ====================
-
 @bot.message_handler(func=lambda m: m.text and len(m.text.split()) >= 2 and m.text.split()[0].isdigit())
 def roulette_bet(message):
     uid = str(message.from_user.id)
@@ -1254,7 +1253,8 @@ def biz_callback(call):
         inc = calc_biz_income(t, b)
         earned = int((min(int(time.time()) - p.get("biz_last_collect", int(time.time())), 86400) / 3600) * inc)
         if earned <= 0: return bot.answer_callback_query(call.id, "⏳ Пусто.", show_alert=True)
-        tax_o = int(inc * 0.08)
+        # ИЗМЕНЕНО: налог 25% вместо 8%
+        tax_o = int(inc * 0.25)
         data["players"][uid]["biz_tax"] = tax_o
         add_balance(uid, earned)
         data["players"][uid]["biz_last_collect"] = int(time.time())
@@ -1452,163 +1452,6 @@ def claim_quests(message):
             claimed_names.append(info.get("name", key))
     if total > 0:
         add_balance(uid, total); save_data()
-        bot.reply_to(message, f"🎉 Получено {total} 🪙\n" + "\n".join(f"• {n}" for n in claimed_names))
-    else: bot.reply_to(message, "❌ Нет выполненных незабранных заданий.\nСмотри: квесты")
-
-def complete_quest(uid, quest_key, amount=1):
-    uid = str(uid)
-    if uid not in data["players"]: return
-    ensure_daily_quests(uid); q = data["players"][uid].get("quests", {})
-    if quest_key not in q: return
-    info = q[quest_key]
-    if info.get("done"): return
-    info["progress"] = info.get("progress", 0) + amount
-    if info["progress"] >= info.get("need", 1):
-        info["progress"] = info.get("need", 1); info["done"] = True
-    save_data()
-
-# ==================== РЕПОРТ / БАН / МУТ / ЧС ====================
-
-def resolve_target(raw):
-    raw = str(raw).strip().replace("@", "")
-    try:
-        sid = int(raw); uid = get_user_by_short_id(sid)
-        if uid: return str(uid)
-    except: pass
-    if raw.isdigit() and raw in data["players"]: return raw
-    uid = get_user_by_username(raw)
-    if uid: return str(uid)
-    return None
-
-@bot.message_handler(commands=["репорт", "report"])
-def report_cmd(message):
-    uid = str(message.from_user.id)
-    if uid not in data["players"]: register_user(message.from_user)
-    parts = message.text.split(maxsplit=1)
-    if len(parts) < 2: return bot.reply_to(message, "❌ Формат:\n`/репорт текст жалобы`\nили ответом на сообщение: `/репорт причина`", parse_mode="Markdown")
-    reason = parts[1].strip(); target_uid = None; target_name = None; target_info = ""
-    if message.reply_to_message:
-        t = message.reply_to_message.from_user
-        target_uid = str(t.id); target_name = t.first_name or str(t.id)
-        target_info = f"\n👤 На кого: {target_name} (@{t.username or '—'})\n🆔 TG ID: `{t.id}`"
-    report = {"id": len(data.get("reports", [])) + 1, "time": int(time.time()), "from_uid": uid, "from_nick": get_nick(uid), "from_sid": get_user_short_id(uid), "target_uid": target_uid, "target_name": target_name, "reason": reason}
-    data.setdefault("reports", []).append(report)
-    if len(data["reports"]) > 200: data["reports"] = data["reports"][-200:]
-    save_data()
-    text = f"🚨 ЖАЛОБА #{report['id']}\n\nОт: {get_nick(uid)} ({get_user_short_id(uid)})\nTG ID: {uid}{target_info}\n\n📝 {reason}"
-    sent = 0
-    for admin_id in ADMIN_IDS:
-        try: bot.send_message(admin_id, text); sent += 1
-        except: pass
-    if sent: bot.reply_to(message, f"✅ Жалоба #{report['id']} отправлена администраторам.")
-    else: bot.reply_to(message, "❌ Не удалось отправить жалобу. Попробуйте позже.")
-
-@bot.message_handler(commands=["ban"])
-def ban_cmd(message):
-    if message.from_user.id not in ADMIN_IDS: return
-    parts = message.text.split()
-    if len(parts) < 2: return bot.reply_to(message, "❌ Формат: `/ban ID/@ник [причина]`", parse_mode="Markdown")
-    target = resolve_target(parts[1])
-    if not target: return bot.reply_to(message, "❌ Игрок не найден.")
-    reason = " ".join(parts[2:]) if len(parts) > 2 else "Без причины"
-    data["banned"][target] = {"reason": reason, "by": message.from_user.id, "time": int(time.time())}
-    data["blacklist"][target] = True; save_data()
-    add_admin_log("ban", message.from_user.id, target, reason)
-    bot.reply_to(message, f"🚫 Игрок {get_nick(target)} ({get_user_short_id(target)}) забанен.\nПричина: {reason}")
-    try: bot.send_message(int(target), f"🚫 Вы забанены.\nПричина: {reason}")
-    except: pass
-
-@bot.message_handler(commands=["unban"])
-def unban_cmd(message):
-    if message.from_user.id not in ADMIN_IDS: return
-    parts = message.text.split()
-    if len(parts) < 2: return bot.reply_to(message, "❌ Формат: `/unban ID/@ник`", parse_mode="Markdown")
-    target = resolve_target(parts[1])
-    if not target: return bot.reply_to(message, "❌ Игрок не найден.")
-    data["banned"].pop(target, None); data["blacklist"].pop(target, None); save_data()
-    add_admin_log("unban", message.from_user.id, target)
-    bot.reply_to(message, f"✅ Игрок {get_nick(target)} разбанен.")
-
-@bot.message_handler(commands=["mute"])
-def mute_cmd(message):
-    if message.from_user.id not in ADMIN_IDS: return
-    parts = message.text.split()
-    if len(parts) < 2: return bot.reply_to(message, "❌ Формат: `/mute ID/@ник [минуты]`\nБез минут — навсегда.", parse_mode="Markdown")
-    target = resolve_target(parts[1])
-    if not target: return bot.reply_to(message, "❌ Игрок не найден.")
-    minutes = None
-    if len(parts) >= 3:
-        try: minutes = int(parts[2])
-        except: pass
-    until = int(time.time()) + minutes * 60 if minutes else 0
-    data["muted"][target] = {"until": until, "by": message.from_user.id}; save_data()
-    add_admin_log("mute", message.from_user.id, target, f"{minutes or 'perm'} min")
-    if minutes: bot.reply_to(message, f"🔇 Игрок {get_nick(target)} в муте на {minutes} мин.")
-    else: bot.reply_to(message, f"🔇 Игрок {get_nick(target)} в муте навсегда.")
-    try: bot.send_message(int(target), "🔇 Вы получили мут.")
-    except: pass
-
-@bot.message_handler(commands=["unmute"])
-def unmute_cmd(message):
-    if message.from_user.id not in ADMIN_IDS: return
-    parts = message.text.split()
-    if len(parts) < 2: return bot.reply_to(message, "❌ Формат: `/unmute ID/@ник`", parse_mode="Markdown")
-    target = resolve_target(parts[1])
-    if not target: return bot.reply_to(message, "❌ Игрок не найден.")
-    data["muted"].pop(target, None); save_data()
-    add_admin_log("unmute", message.from_user.id, target)
-    bot.reply_to(message, f"✅ Мут снят с {get_nick(target)}.")
-
-@bot.message_handler(commands=["чс", "blacklist", "bl"])
-def blacklist_cmd(message):
-    if message.from_user.id not in ADMIN_IDS: return
-    parts = message.text.split()
-    if len(parts) < 2: return bot.reply_to(message, "❌ Формат:\n/чс ID/@ник — добавить\n/чс del ID/@ник — убрать\n/чс list — список")
-    if parts[1].lower() in ["list", "список"]:
-        bl = data.get("blacklist", {})
-        if not bl: return bot.reply_to(message, "ЧС пуст.")
-        lines = []
-        for i, uid in enumerate(list(bl.keys())[:30], 1): lines.append(f"{i}. {get_nick(uid)} ({get_user_short_id(uid)}) — {uid}")
-        return bot.reply_to(message, "⛔ Чёрный список:\n" + "\n".join(lines))
-    if parts[1].lower() in ["del", "удалить", "remove"]:
-        if len(parts) < 3: return bot.reply_to(message, "❌ Укажите игрока.")
-        target = resolve_target(parts[2])
-        if not target: return bot.reply_to(message, "❌ Игрок не найден.")
-        data["blacklist"].pop(target, None); save_data()
-        add_admin_log("chs_del", message.from_user.id, target)
-        return bot.reply_to(message, f"✅ {get_nick(target)} убран из ЧС.")
-    target = resolve_target(parts[1])
-    if not target:
-        raw = parts[1].replace("@", "")
-        if raw.isdigit(): target = raw
-        else: return bot.reply_to(message, "❌ Игрок не найден.")
-    data["blacklist"][str(target)] = True; save_data()
-    add_admin_log("chs_add", message.from_user.id, target)
-    bot.reply_to(message, f"⛔ {get_nick(target) if target in data['players'] else target} добавлен в ЧС.\nБот больше не отвечает этому пользователю.")
-
-@bot.message_handler(commands=["репорты", "reports"])
-def reports_list(message):
-    if message.from_user.id not in ADMIN_IDS: return
-    reports = data.get("reports", [])
-    if not reports: return bot.reply_to(message, "📭 Репортов пока нет.")
-    last = reports[-15:]; lines = []
-    for r in reversed(last):
-        t = time.strftime("%d.%m %H:%M", time.localtime(r.get("time", 0)))
-        target = r.get("target_name") or "—"
-        lines.append(f"#{r.get('id')} [{t}]\nОт: {r.get('from_nick')} ({r.get('from_sid')})\nНа: {target}\n📝 {r.get('reason', '')[:120]}\n")
-    bot.reply_to(message, "🚨 Последние репорты:\n\n" + "\n".join(lines))
-
-@bot.message_handler(commands=["логи", "logs"])
-def admin_logs_cmd(message):
-    if message.from_user.id not in ADMIN_IDS: return
-    logs = data.get("admin_logs", [])
-    if not logs: return bot.reply_to(message, "📭 Логов пока нет.")
-    last = logs[-20:]; lines = []
-    for e in reversed(last):
-        t = time.strftime("%d.%m %H:%M", time.localtime(e.get("time", 0)))
-        target = e.get("target") or "—"; detail = e.get("detail") or ""
-        lines.append(f"[{t}] {e.get('action')} | admin:{e.get('admin')} | target:{target} {detail}")
-    bot.reply_to(message, "📋 Админ-логи:\n\n" + "\n".join(lines))
-
-print("BOT STARTED")
-bot.infinity_polling(skip_pending=True)
+        bot.reply_to(message, f"🎉 Получено {total} 🪙\n" + "\n".join(claimed_names))
+    else:
+        bot.reply_to(message, "❌ Нет доступных наград.")
