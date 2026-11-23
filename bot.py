@@ -1,5 +1,5 @@
 import os, random, math, time, telebot, threading, json, pathlib
-import hmac, hashlib
+import hmac, hashlib, secrets
 from urllib.parse import parse_qsl
 from flask import Flask, jsonify, request, send_from_directory
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, LabeledPrice, WebAppInfo
@@ -56,6 +56,7 @@ def migrate_data():
     if changed: save_data()
 
 migrate_data()
+data.setdefault("mini_sessions", {})
 bot = telebot.TeleBot(TOKEN)
 
 # ==================== TELEGRAM MINI APP ====================
@@ -126,9 +127,160 @@ def mini_app_me():
             "name": player.get("username") or tg_user.get("first_name") or "Игрок",
             "balance": int(player.get("balance", 0)),
             "short_id": player.get("short_id", 0),
-            "status": player.get("donate_status", "Нет")
+            "status": player.get("donate_status", "Нет"),
+            "bonus_ready": int(time.time()) - int(player.get("last_bonus", 0)) >= 86400,
+            "bonus_seconds_left": max(0, 86400 - (int(time.time()) - int(player.get("last_bonus", 0)))),
+            "promo_count": len(data.get("promos", {}))
         }
     return jsonify(result)
+
+
+def mini_auth_user():
+    payload = request.get_json(silent=True) or {}
+    tg_user = validate_telegram_init_data(payload.get("initData", ""))
+    if not tg_user:
+        return None, (jsonify({"ok": False, "error": "Не удалось подтвердить Telegram-пользователя"}), 401)
+    uid = str(tg_user["id"])
+    if is_blocked(uid):
+        return None, (jsonify({"ok": False, "error": "Доступ к игре ограничен"}), 403)
+    if uid not in data.get("players", {}):
+        return None, (jsonify({"ok": False, "error": "Сначала запусти бота командой /start"}), 404)
+    return uid, None
+
+
+@web_app.route("/api/bonus", methods=["POST"])
+def mini_app_bonus():
+    uid, error = mini_auth_user()
+    if error:
+        return error
+    player = data["players"][uid]
+    now = int(time.time())
+    last = int(player.get("last_bonus", 0))
+    left = 86400 - (now - last)
+    if left > 0:
+        return jsonify({"ok": False, "error": "Бонус уже получен", "seconds_left": left}), 429
+    reward = random.randint(1000, 3000)
+    player["balance"] = int(player.get("balance", 0)) + reward
+    player["last_bonus"] = now
+    save_data()
+    try:
+        complete_quest(uid, "bonus")
+    except Exception as e:
+        print(f"Mini App bonus quest warning: {e}")
+    return jsonify({"ok": True, "reward": reward, "balance": int(player["balance"]), "bonus_ready": False, "bonus_seconds_left": 86400})
+
+
+@web_app.route("/api/promo", methods=["POST"])
+def mini_app_promo():
+    uid, error = mini_auth_user()
+    if error:
+        return error
+    payload = request.get_json(silent=True) or {}
+    code = str(payload.get("code", "")).strip().upper()
+    if not code or len(code) > 40:
+        return jsonify({"ok": False, "error": "Введи корректный промокод"}), 400
+    if code not in data.get("promos", {}):
+        return jsonify({"ok": False, "error": "Промокод не найден или уже не действует"}), 404
+    activation_key = f"{uid}_{code}"
+    if activation_key in data.setdefault("activations", []):
+        return jsonify({"ok": False, "error": "Ты уже активировал этот промокод"}), 409
+    amount = int(data["promos"][code])
+    if amount <= 0:
+        return jsonify({"ok": False, "error": "У этого промокода некорректная награда"}), 400
+    data["players"][uid]["balance"] = int(data["players"][uid].get("balance", 0)) + amount
+    data["activations"].append(activation_key)
+    save_data()
+    return jsonify({"ok": True, "code": code, "reward": amount, "balance": int(data["players"][uid]["balance"])})
+
+
+# Мини-игры в Mini App — тренировочные режимы без ставок и списания/начисления валюты.
+@web_app.route("/api/mines/start", methods=["POST"])
+def mini_mines_start():
+    uid, error = mini_auth_user()
+    if error:
+        return error
+    payload = request.get_json(silent=True) or {}
+    try:
+        bombs = int(payload.get("bombs", 5))
+    except (TypeError, ValueError):
+        bombs = 5
+    if bombs not in (3, 5, 9):
+        return jsonify({"ok": False, "error": "Выбери 3, 5 или 9 мин"}), 400
+    sessions = data.setdefault("mini_sessions", {})
+    for old_id, old in list(sessions.items()):
+        if old.get("user") == uid and old.get("type") == "mines":
+            sessions.pop(old_id, None)
+    sid = secrets.token_urlsafe(12)
+    mines = random.sample(range(25), bombs)
+    sessions[sid] = {"type": "mines", "user": uid, "mines": mines, "opened": [], "active": True, "created": int(time.time())}
+    save_data()
+    return jsonify({"ok": True, "session": sid, "bombs": bombs, "opened": [], "active": True})
+
+
+@web_app.route("/api/mines/open", methods=["POST"])
+def mini_mines_open():
+    uid, error = mini_auth_user()
+    if error:
+        return error
+    payload = request.get_json(silent=True) or {}
+    sid = str(payload.get("session", ""))
+    try:
+        cell = int(payload.get("cell", -1))
+    except (TypeError, ValueError):
+        cell = -1
+    session = data.setdefault("mini_sessions", {}).get(sid)
+    if not session or session.get("type") != "mines" or session.get("user") != uid or not session.get("active"):
+        return jsonify({"ok": False, "error": "Раунд уже завершён. Начни новый."}), 404
+    if not 0 <= cell < 25 or cell in session["opened"]:
+        return jsonify({"ok": False, "error": "Эта клетка недоступна"}), 400
+    if cell in session["mines"]:
+        session["active"] = False
+        save_data()
+        return jsonify({"ok": True, "hit": True, "active": False, "opened": session["opened"], "mines": session["mines"], "score": len(session["opened"])})
+    session["opened"].append(cell)
+    if len(session["opened"]) >= 25 - len(session["mines"]):
+        session["active"] = False
+    save_data()
+    return jsonify({"ok": True, "hit": False, "active": session["active"], "opened": session["opened"], "score": len(session["opened"])})
+
+
+@web_app.route("/api/crash/start", methods=["POST"])
+def mini_crash_start():
+    uid, error = mini_auth_user()
+    if error:
+        return error
+    sessions = data.setdefault("mini_sessions", {})
+    for old_id, old in list(sessions.items()):
+        if old.get("user") == uid and old.get("type") == "crash":
+            sessions.pop(old_id, None)
+    sid = secrets.token_urlsafe(12)
+    sessions[sid] = {"type": "crash", "user": uid, "crash_point": round(random.uniform(1.5, 8.0), 2), "started": time.time(), "active": True}
+    save_data()
+    return jsonify({"ok": True, "session": sid, "multiplier": 1.0, "active": True})
+
+
+@web_app.route("/api/crash/state", methods=["POST"])
+def mini_crash_state():
+    uid, error = mini_auth_user()
+    if error:
+        return error
+    payload = request.get_json(silent=True) or {}
+    sid = str(payload.get("session", ""))
+    session = data.setdefault("mini_sessions", {}).get(sid)
+    if not session or session.get("type") != "crash" or session.get("user") != uid:
+        return jsonify({"ok": False, "error": "Раунд не найден"}), 404
+    if session.get("active"):
+        elapsed = max(0.0, time.time() - float(session["started"]))
+        current = 1.0 + elapsed * 0.35
+        crashed = current >= float(session["crash_point"])
+        if crashed:
+            current = float(session["crash_point"])
+            session["active"] = False
+            save_data()
+    else:
+        current = float(session.get("crash_point", 1.0))
+        crashed = True
+    return jsonify({"ok": True, "multiplier": round(current, 2), "active": bool(session.get("active")), "crashed": crashed})
 
 
 @web_app.route("/health")
