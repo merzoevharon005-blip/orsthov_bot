@@ -7,7 +7,8 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, LabeledPri
 TOKEN = os.getenv("BOT_TOKEN")
 if not TOKEN: raise ValueError("Не задан BOT_TOKEN")
 
-ADMIN_IDS = [8211650013, 6940877915]
+# Убедитесь, что эти ID правильные
+ADMIN_IDS = [8211650013, 6940877915] 
 DATA_DIR = pathlib.Path("/app/data"); DATA_DIR.mkdir(parents=True, exist_ok=True)
 DATA_FILE = DATA_DIR / "database.json"
 
@@ -61,7 +62,8 @@ bot = telebot.TeleBot(TOKEN)
 
 # ==================== TELEGRAM MINI APP ====================
 
-WEBAPP_URL = "https://bot-1794808232-3061-mon1x.bothost.tech"
+# СЮДА ВСТАВЬТЕ ВАШ ДОМЕН ИЗ BOTHOST
+WEBAPP_URL = "https://bot-1794808232-3061-mon1x.bothost.tech" 
 WEBAPP_DIR = pathlib.Path(__file__).parent / "webapp"
 web_app = Flask(__name__, static_folder=None)
 
@@ -296,8 +298,10 @@ def mini_crash_state():
 def mini_app_health():
     return jsonify({"ok": True, "service": "MON1 GAME Mini App"})
 
+# ФУНКЦИЯ ЗАПУСКА FLASK
 def run_mini_app_server():
     port = int(os.getenv("PORT", "3000"))
+    # ВАЖНО: host="0.0.0.0" чтобы Bothost мог достучаться
     web_app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False, threaded=True)
 
 def is_blocked(uid):
@@ -1402,5 +1406,11 @@ def complete_quest(uid, quest_name):
     if "quests" in p and quest_name in p["quests"]:
         if not p["quests"][quest_name]["done"]: p["quests"][quest_name]["done"] = True; save_data()
 
-print("BOT STARTED")
-bot.infinity_polling(skip_pending=True)
+# ==================== ЗАПУСК ====================
+
+if __name__ == "__main__":
+    # Запускаем Flask сервер в отдельном потоке для Bothost
+    threading.Thread(target=run_mini_app_server, daemon=True).start()
+    
+    print("BOT STARTED")
+    bot.infinity_polling(skip_pending=True)
