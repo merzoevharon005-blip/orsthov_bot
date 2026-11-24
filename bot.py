@@ -206,9 +206,6 @@ def mini_mines_cashout():
 CRASH_MIN = 1.0
 CRASH_MAX = 4.8
 CRASH_SPEED = 0.36
-
-# House edge: вероятность "раннего" краша (1.00x–1.50x).
-# 0.10 = +10% к шансу проигрыша. Рекомендуется указать в правилах игры.
 CRASH_HOUSE_EDGE = 0.10
 
 def generate_crash_point():
@@ -270,8 +267,6 @@ def mini_crash_cashout():
     return jsonify({"ok": True, "win": win, "multiplier": multiplier, "balance": int(data["players"][uid]["balance"])})
 
 # ==================== БИЗНЕС (Mini App) ====================
-# Формула дохода согласована с calc_biz_income() (ниже в файле).
-
 def _biz_income(t, b):
     t = max(1, int(t or 1)); b = max(1, int(b or 1))
     return int(1000 * t * (1 + (b - 1) * 0.6))
@@ -285,43 +280,33 @@ def mini_biz_state():
     now = int(time.time()); last = int(p.get("biz_last_collect", now))
     hours = max(0, (now - last) // 3600)
     rate = _biz_income(terr, build) if terr > 0 else 0
-    return jsonify({
-        "ok": True, "territory": terr, "building": build,
+    return jsonify({"ok": True, "territory": terr, "building": build,
         "tax": p.get("biz_tax", 0), "balance": int(p.get("balance", 0)),
         "territory_cost": BIZ_TERRITORY_COST.get(terr),
         "building_cost": BIZ_BUILDING_COST.get(build),
-        "income_per_hour": rate,
-        "pending_income": rate * hours, "pending_hours": hours,
-    })
+        "income_per_hour": rate, "pending_income": rate * hours, "pending_hours": hours})
 
 @web_app.route("/api/biz/upgrade", methods=["POST"])
 def mini_biz_upgrade():
     uid, error = mini_auth_user()
     if error: return error
     payload = request.get_json(silent=True) or {}
-    kind = payload.get("kind")
-    p = data["players"][uid]
+    kind = payload.get("kind"); p = data["players"][uid]
     if kind == "territory":
-        cur = p.get("biz_territory", 0)
-        cost = BIZ_TERRITORY_COST.get(cur)
+        cur = p.get("biz_territory", 0); cost = BIZ_TERRITORY_COST.get(cur)
         if cost is None: return jsonify({"ok": False, "error": "Максимальный уровень территории"}), 400
         if int(p.get("balance", 0)) < cost: return jsonify({"ok": False, "error": "Недостаточно монет"}), 400
-        p["balance"] = int(p["balance"]) - cost
-        p["biz_territory"] = cur + 1
+        p["balance"] = int(p["balance"]) - cost; p["biz_territory"] = cur + 1
         if p["biz_territory"] == 1:
             p["biz_building"] = 1; p["biz_tax"] = 0; p["biz_last_collect"] = int(time.time())
     elif kind == "building":
-        cur = p.get("biz_building", 1)
-        cost = BIZ_BUILDING_COST.get(cur)
+        cur = p.get("biz_building", 1); cost = BIZ_BUILDING_COST.get(cur)
         if cost is None: return jsonify({"ok": False, "error": "Максимальный уровень здания"}), 400
         if int(p.get("balance", 0)) < cost: return jsonify({"ok": False, "error": "Недостаточно монет"}), 400
-        p["balance"] = int(p["balance"]) - cost
-        p["biz_building"] = cur + 1
-    else:
-        return jsonify({"ok": False, "error": "Неизвестный тип"}), 400
+        p["balance"] = int(p["balance"]) - cost; p["biz_building"] = cur + 1
+    else: return jsonify({"ok": False, "error": "Неизвестный тип"}), 400
     save_data()
-    return jsonify({"ok": True, "balance": int(p["balance"]),
-                    "territory": p["biz_territory"], "building": p["biz_building"]})
+    return jsonify({"ok": True, "balance": int(p["balance"]), "territory": p["biz_territory"], "building": p["biz_building"]})
 
 @web_app.route("/api/biz/collect", methods=["POST"])
 def mini_biz_collect():
@@ -330,18 +315,15 @@ def mini_biz_collect():
     p = data["players"][uid]
     if p.get("biz_tax", 0) > 0:
         return jsonify({"ok": False, "error": f"Сначала оплатите налог ({p['biz_tax']} 🪙)"}), 400
-    now = int(time.time())
-    last = int(p.get("biz_last_collect", now))
+    now = int(time.time()); last = int(p.get("biz_last_collect", now))
     hours = max(0, (now - last) // 3600)
     if hours < 1: return jsonify({"ok": False, "error": "Доход ещё не накопился"}), 429
     rate = _biz_income(p.get("biz_territory", 0), p.get("biz_building", 1))
     gross = rate * hours
     if gross <= 0: return jsonify({"ok": False, "error": "Бизнес не приносит дохода"}), 400
-    tax = int(gross * 0.25)
-    received = gross - tax
+    tax = int(gross * 0.25); received = gross - tax
     p["balance"] = int(p.get("balance", 0)) + received
-    p["biz_last_collect"] = now
-    save_data()
+    p["biz_last_collect"] = now; save_data()
     return jsonify({"ok": True, "gross": gross, "tax": tax, "income": received,
                     "hours": hours, "balance": int(p["balance"])})
 
@@ -440,17 +422,43 @@ def mini_duel_state():
     payload = request.get_json(silent=True) or {}
     duel = data["duels"].get(str(payload.get("duel_id", "")))
     if not duel: return jsonify({"ok": False, "error": "Дуэль не найдена"}), 404
-    if uid not in (duel["challenger"], duel["opponent"]): return jsonify({"ok": False, "error": "Нет доступа"}), 403
+    if uid not in (duel["challenger"], duel.get("opponent")): return jsonify({"ok": False, "error": "Нет доступа"}), 403
     out = {"ok": True, "status": duel["status"], "bet": int(duel["amount"]),
            "challenger": duel["challenger"], "opponent": duel["opponent"],
            "your_choice": duel.get("choice1") if uid == duel["challenger"] else duel.get("choice2"),
            "opponent_choice": duel.get("choice2") if uid == duel["challenger"] else duel.get("choice1"),
            "balance": int(data["players"][uid].get("balance", 0))}
-    if duel["status"] in ("finished", "draw"):
-        out.update({"winner": duel.get("winner"), "result": duel.get("result"),
-                    "choice1": duel.get("choice1"), "choice2": duel.get("choice2")})
+    if duel["status"] in ("finished", "draw", "cancelled"):
+        out.update({
+            "winner": duel.get("winner"), "result": duel.get("result"),
+            "choice1": duel.get("choice1"), "choice2": duel.get("choice2"),
+            "you_won": (duel.get("winner") == uid) if duel.get("winner") else False,
+            "challenger_name": data["players"].get(duel["challenger"], {}).get("username", "Игрок"),
+            "opponent_name": data["players"].get(duel.get("opponent") or "", {}).get("username", "Соперник"),
+            "cancelled_by": duel.get("cancelled_by"),
+        })
     return jsonify(out)
-    
+
+@web_app.route("/api/duel/cancel", methods=["POST"])
+def mini_duel_cancel():
+    uid, error = mini_auth_user()
+    if error: return error
+    payload = request.get_json(silent=True) or {}
+    duel_id = str(payload.get("duel_id", ""))
+    duel = data["duels"].get(duel_id)
+    if not duel or not duel.get("miniapp"): return jsonify({"ok": False, "error": "Дуэль не найдена"}), 404
+    if uid not in (duel["challenger"], duel.get("opponent")): return jsonify({"ok": False, "error": "Нет доступа"}), 403
+    if duel["status"] == "pending":
+        duel["status"] = "cancelled"; duel["cancelled_by"] = uid; save_data()
+        return jsonify({"ok": True, "refund": 0, "balance": int(data["players"][uid].get("balance", 0))})
+    if duel["status"] == "choosing":
+        bet = int(duel["amount"])
+        add_balance(duel["challenger"], bet)
+        if duel.get("opponent"): add_balance(duel["opponent"], bet)
+        duel["status"] = "cancelled"; duel["cancelled_by"] = uid; save_data()
+        return jsonify({"ok": True, "refund": bet, "balance": int(data["players"][uid].get("balance", 0))})
+    return jsonify({"ok": False, "error": "Дуэль уже завершена"}), 400
+
 @web_app.route("/health")
 def mini_app_health(): return jsonify({"ok": True, "service": "MON1 GAME Mini App"})
 
@@ -525,7 +533,7 @@ def complete_quest(uid, quest):
 
 def money_fmt(value): return f"{int(value):,}".replace(",", " ")
 
-# ==================== БЛОК ЧС ====================
+# ==================== БЛОК ЧС / BAN / MUTE ====================
 @bot.message_handler(func=lambda m: is_blocked(m.from_user.id) is not None, content_types=["text", "photo", "video", "sticker", "voice", "document", "audio"])
 def block_restricted(message):
     status = is_blocked(message.from_user.id)
@@ -576,6 +584,87 @@ def cmd_chs(message):
     add_admin_log("chs_add", message.from_user.id, target_uid, reason); save_data()
     bot.reply_to(message, f"🚫 `{target}` в ЧС.\nПричина: {reason}", parse_mode="Markdown")
     try: bot.send_message(int(target_uid), "🚫 Вы заблокированы (ЧС).")
+    except: pass
+
+# ==================== /BAN ====================
+@bot.message_handler(commands=['ban', 'бан'])
+def cmd_ban(message):
+    if message.from_user.id not in ADMIN_IDS: return
+    parts = message.text.split(maxsplit=2)
+    if len(parts) < 2:
+        # список забаненных
+        bl = data.get("banned", {})
+        if not bl: return bot.reply_to(message, "📭 Список банов пуст.")
+        lines = ["⛔ **ЗАБАНЕННЫЕ**\n"]
+        for uid, info in list(bl.items())[:30]:
+            nick = data["players"].get(uid, {}).get("username", "?")
+            sid = data["players"].get(uid, {}).get("short_id", "?")
+            reason = info.get("reason", "—") if isinstance(info, dict) else "—"
+            lines.append(f"• `{sid}` — {nick} ({reason})")
+        lines.append(f"\nВсего: {len(bl)}\nБан: `/ban ID причина`\nРазбан: `/ban - ID`")
+        return bot.reply_to(message, "\n".join(lines), parse_mode="Markdown")
+    arg = parts[1].strip()
+    if arg.startswith("-"):
+        target = arg[1:].strip(); target_uid = get_user_by_short_id(target)
+        if not target_uid: return bot.reply_to(message, f"❌ Игрок `{target}` не найден.", parse_mode="Markdown")
+        if target_uid in data["banned"]:
+            data["banned"].pop(target_uid, None); add_admin_log("unban", message.from_user.id, target_uid); save_data()
+            return bot.reply_to(message, f"✅ `{target}` разбанен.", parse_mode="Markdown")
+        return bot.reply_to(message, "❌ Этого игрока нет в бане.")
+    target = arg; reason = parts[2].strip() if len(parts) > 2 else "без причины"
+    target_uid = get_user_by_short_id(target)
+    if not target_uid: return bot.reply_to(message, f"❌ Игрок `{target}` не найден.", parse_mode="Markdown")
+    if target_uid in [str(a) for a in ADMIN_IDS]: return bot.reply_to(message, "❌ Нельзя банить админа.")
+    data["banned"][target_uid] = {"reason": reason, "by": str(message.from_user.id), "time": int(time.time())}
+    add_admin_log("ban", message.from_user.id, target_uid, reason); save_data()
+    bot.reply_to(message, f"⛔ `{target}` забанен.\nПричина: {reason}", parse_mode="Markdown")
+    try: bot.send_message(int(target_uid), f"⛔ Вы забанены.\nПричина: {reason}")
+    except: pass
+
+# ==================== /MUTE ====================
+@bot.message_handler(commands=['mute', 'мут'])
+def cmd_mute(message):
+    if message.from_user.id not in ADMIN_IDS: return
+    parts = message.text.split(maxsplit=2)
+    if len(parts) < 2:
+        ml = data.get("muted", {})
+        if not ml: return bot.reply_to(message, "📭 Список мутов пуст.")
+        lines = ["🔇 **В МУТЕ**\n"]
+        now = int(time.time())
+        for uid, info in list(ml.items())[:30]:
+            nick = data["players"].get(uid, {}).get("username", "?")
+            sid = data["players"].get(uid, {}).get("short_id", "?")
+            until = info.get("until", 0)
+            if until == 0: left = "навсегда"
+            else:
+                left_sec = max(0, until - now)
+                left = f"{left_sec // 3600}ч {(left_sec % 3600) // 60}м"
+            lines.append(f"• `{sid}` — {nick} ({left})")
+        lines.append(f"\nВсего: {len(ml)}\nМут: `/mute ID [минуты]` (без минут — навсегда)\nРазмут: `/mute - ID`")
+        return bot.reply_to(message, "\n".join(lines), parse_mode="Markdown")
+    arg = parts[1].strip()
+    if arg.startswith("-"):
+        target = arg[1:].strip(); target_uid = get_user_by_short_id(target)
+        if not target_uid: return bot.reply_to(message, f"❌ Игрок `{target}` не найден.", parse_mode="Markdown")
+        if target_uid in data["muted"]:
+            data["muted"].pop(target_uid, None); add_admin_log("unmute", message.from_user.id, target_uid); save_data()
+            return bot.reply_to(message, f"✅ `{target}` размучен.", parse_mode="Markdown")
+        return bot.reply_to(message, "❌ Этого игрока нет в муте.")
+    target = arg; target_uid = get_user_by_short_id(target)
+    if not target_uid: return bot.reply_to(message, f"❌ Игрок `{target}` не найден.", parse_mode="Markdown")
+    if target_uid in [str(a) for a in ADMIN_IDS]: return bot.reply_to(message, "❌ Нельзя мутить админа.")
+    minutes = 0
+    if len(parts) > 2:
+        try: minutes = int(parts[2].strip())
+        except: return bot.reply_to(message, "❌ Время в минутах числом.")
+    until = 0 if minutes <= 0 else int(time.time()) + minutes * 60
+    data["muted"][target_uid] = {"until": until, "by": str(message.from_user.id), "time": int(time.time())}
+    add_admin_log("mute", message.from_user.id, target_uid, minutes); save_data()
+    if until == 0: bot.reply_to(message, f"🔇 `{target}` в муте навсегда.", parse_mode="Markdown")
+    else: bot.reply_to(message, f"🔇 `{target}` в муте на {minutes} мин.", parse_mode="Markdown")
+    try:
+        if until == 0: bot.send_message(int(target_uid), "🔇 Вы в муте навсегда.")
+        else: bot.send_message(int(target_uid), f"🔇 Вы в муте на {minutes} мин.")
     except: pass
 
 # ==================== СТАРТ ====================
@@ -643,8 +732,7 @@ def daily_bonus(message):
     uid = str(message.from_user.id)
     if uid not in data["players"]: register_user(message.from_user)
     p = data["players"][uid]
-    now = int(time.time())
-    last = p.get("last_bonus", 0)
+    now = int(time.time()); last = p.get("last_bonus", 0)
     if now - last < 86400:
         left = 86400 - (now - last)
         return bot.reply_to(message, f"⏳ **Подождите!**\nСледующий бонус через **{left // 3600} ч. {(left % 3600) // 60} мин.**", parse_mode="Markdown")
@@ -852,13 +940,13 @@ def rps_winner(c1, c2):
 def find_pending_duel_for(uid):
     uid = str(uid)
     for duel_id, duel in data["duels"].items():
-        if duel["status"] == "pending" and duel["opponent"] == uid: return duel_id, duel
+        if duel["status"] == "pending" and duel.get("opponent") == uid: return duel_id, duel
     return None, None
 
 def find_active_duel_for(uid):
     uid = str(uid)
     for duel_id, duel in data["duels"].items():
-        if duel["status"] == "choosing" and uid in (duel["challenger"], duel["opponent"]): return duel_id, duel
+        if duel["status"] == "choosing" and uid in (duel["challenger"], duel.get("opponent")): return duel_id, duel
     return None, None
 
 def resolve_rps_duel(duel_id, duel):
@@ -925,7 +1013,7 @@ def duel_challenge(message):
     if get_balance(target_uid) < amount: return bot.reply_to(message, "❌ Мало у соперника.")
     for d in data["duels"].values():
         if d["status"] in ("pending", "choosing"):
-            if uid in (d["challenger"], d["opponent"]) or target_uid in (d["challenger"], d["opponent"]):
+            if uid in (d["challenger"], d.get("opponent")) or target_uid in (d["challenger"], d.get("opponent")):
                 return bot.reply_to(message, "❌ Активный вызов.")
     duel_id = str(int(time.time() * 1000))
     data["duels"][duel_id] = {"challenger": uid, "opponent": target_uid, "amount": amount, "status": "pending", "choice1": None, "choice2": None, "created": int(time.time())}
@@ -975,6 +1063,30 @@ def duel_reject_text(message):
     try: bot.send_message(int(duel["challenger"]), f"❌ **{get_nick(uid)}** отклонил.")
     except: pass
 
+@bot.message_handler(func=lambda m: m.text and m.text.lower().strip() in ["отменить дуэль", "отмена дуэли"])
+def duel_cancel_text(message):
+    uid = str(message.from_user.id)
+    for duel_id, duel in list(data["duels"].items()):
+        if duel.get("status") == "pending" and duel.get("challenger") == uid:
+            duel["status"] = "cancelled"; duel["cancelled_by"] = uid; save_data()
+            bot.reply_to(message, "✅ Твой вызов отменён.")
+            try: bot.send_message(int(duel["opponent"]), f"⌛ **{get_nick(uid)}** отменил вызов.", parse_mode="Markdown")
+            except: pass
+            return
+    for duel_id, duel in list(data["duels"].items()):
+        if duel.get("status") == "choosing" and uid in (duel["challenger"], duel.get("opponent")):
+            amount = int(duel["amount"])
+            add_balance(duel["challenger"], amount)
+            if duel.get("opponent"): add_balance(duel["opponent"], amount)
+            duel["status"] = "cancelled"; duel["cancelled_by"] = uid; save_data()
+            bot.reply_to(message, f"✅ Дуэль отменена. Ставки возвращены ({amount} 🪙).")
+            for pid in (duel["challenger"], duel.get("opponent")):
+                if pid and pid != uid:
+                    try: bot.send_message(int(pid), f"⌛ **{get_nick(uid)}** отменил дуэль. Ставка возвращена.", parse_mode="Markdown")
+                    except: pass
+            return
+    bot.reply_to(message, "❌ У тебя нет активной дуэли.")
+
 @bot.callback_query_handler(func=lambda call: call.data.startswith("duel_"))
 def duel_callback(call):
     try: parts = call.data.split("_"); action = parts[1]; duel_id = parts[2]
@@ -982,7 +1094,7 @@ def duel_callback(call):
     duel = data["duels"].get(duel_id)
     if not duel or duel["status"] != "pending": return bot.answer_callback_query(call.id, "❌ Недействителен.", show_alert=True)
     uid = str(call.from_user.id)
-    if uid != duel["opponent"]: return bot.answer_callback_query(call.id, "❌ Не твой.", show_alert=True)
+    if uid != duel.get("opponent"): return bot.answer_callback_query(call.id, "❌ Не твой.", show_alert=True)
     challenger = duel["challenger"]; opponent = duel["opponent"]; amount = duel["amount"]
     if action == "reject":
         duel["status"] = "rejected"; save_data()
@@ -1009,7 +1121,7 @@ def rps_choice_callback(call):
     duel = data["duels"].get(duel_id)
     if not duel or duel["status"] != "choosing": return bot.answer_callback_query(call.id, "❌ Закончена.", show_alert=True)
     uid = str(call.from_user.id)
-    if uid not in (duel["challenger"], duel["opponent"]): return bot.answer_callback_query(call.id, "❌ Не твоя.", show_alert=True)
+    if uid not in (duel["challenger"], duel.get("opponent")): return bot.answer_callback_query(call.id, "❌ Не твоя.", show_alert=True)
     choice = RPS_CHOICES.get(choice.lower())
     if not choice: return bot.answer_callback_query(call.id, "Неверный выбор.")
     if uid == duel["challenger"]:
@@ -1041,7 +1153,6 @@ def rps_choice_text(message):
     if duel.get("choice1") and duel.get("choice2"): resolve_rps_duel(duel_id, duel)
 
 # ==================== АДМИН-ПАНЕЛЬ ====================
-
 @bot.message_handler(commands=['admin'])
 @bot.message_handler(func=lambda m: m.text and m.text.lower().strip() in ['админ', 'админка'])
 def admin_panel(message):
@@ -1060,7 +1171,7 @@ def admin_callbacks(call):
     act = call.data.split("_")[1]
     if act == "stats":
         total_players = len(data["players"]); total_money = sum(p.get("balance", 0) for p in data["players"].values()); total_clans = len(data["clans"])
-        text = f"📊 **СТАТИСТИКА**\n👥 Игроков: {total_players}\n💰 Общий баланс: {total_money} 🪙\n🛡 Кланов: {total_clans}\n🚫 ЧС: {len(data.get('blacklist', {}))}\n📜 Лог рулетки: {len(data.get('roulette_log', []))}"
+        text = f"📊 **СТАТИСТИКА**\n👥 Игроков: {total_players}\n💰 Общий баланс: {total_money} 🪙\n🛡 Кланов: {total_clans}\n🚫 ЧС: {len(data.get('blacklist', {}))}\n⛔ Банов: {len(data.get('banned', {}))}\n🔇 Мутов: {len(data.get('muted', {}))}\n📜 Лог рулетки: {len(data.get('roulette_log', []))}"
         bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("⬅️ Назад", callback_data="adm_back")), parse_mode="Markdown")
     elif act == "give":
         msg = bot.send_message(call.message.chat.id, "Введите `ID СУММА` (например: `3 5000`):"); bot.register_next_step_handler(msg, admin_give_step); bot.answer_callback_query(call.id)
@@ -1144,7 +1255,7 @@ def admin_broadcast_step(message):
         except: pass
     bot.reply_to(message, f"✅ Рассылка отправлена {success} игрокам.")
 
-# ==================== WIPE / RESET / GET_PROFILE ====================
+# ==================== WIPE / RESET / GET_PROFILE / GIVE ====================
 
 @bot.message_handler(commands=['wipe'])
 def wipe_command(message):
