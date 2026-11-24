@@ -73,6 +73,9 @@ button:active { transform:scale(.98); }
 .choices { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:12px; }
 .choices button { background:var(--panel2); border:1px solid var(--line); border-radius:12px; padding:14px 0; font-size:20px; }
 .choices button.chosen { border-color:#8175ff; background:rgba(120,103,255,.18); }
+.duel-result-win { color:var(--green); font-weight:800; }
+.duel-result-lose { color:var(--red); font-weight:800; }
+.duel-result-draw { color:var(--gold); font-weight:800; }
 .biz-stat { display:flex; justify-content:space-between; font-size:12px; padding:6px 0; border-bottom:1px dashed rgba(161,180,220,.1); }
 .biz-stat:last-child { border-bottom:0; }
 @media(min-width:480px) { body { padding-top:25px; } .tiles { gap:12px; } .tile { min-height:125px; padding:17px; } }
@@ -189,12 +192,13 @@ button:active { transform:scale(.98); }
             <div class="card hidden" id="duelActiveCard">
                 <div class="card-title">Твоя дуэль</div>
                 <div class="desc" id="duelActiveDesc"></div>
-                <div class="choices" id="duelChoices">
+                <div class="choices hidden" id="duelChoices">
                     <button data-choice="камень">🪨</button>
                     <button data-choice="ножницы">✂️</button>
                     <button data-choice="бумага">📄</button>
                 </div>
                 <div class="note" id="duelActiveNote"></div>
+                <button class="primary red hidden" id="cancelDuel">ОТМЕНИТЬ ДУЭЛЬ</button>
             </div>
         </section>
 
@@ -259,6 +263,7 @@ let crashTimer = null;
 let crashBetValue = 0;
 let activeDuelId = null;
 let duelPollTimer = null;
+let myUid = null;
 
 const $ = id => document.getElementById(id);
 const money = n => Number(n || 0).toLocaleString('ru-RU');
@@ -292,6 +297,7 @@ async function loadProfile() {
     if (!initData) { $('loading').textContent = 'Открой Mini App через кнопку в Telegram.'; return; }
     try {
         profile = await api('/api/me');
+        myUid = String(profile.short_id ?? '');
         $('loading').classList.add('hidden');
         $('main').classList.remove('hidden');
         $('tabs').classList.remove('hidden');
@@ -508,6 +514,7 @@ $('createDuel').addEventListener('click', async () => {
         activeDuelId = d.duel_id;
         resetDuelButtons();
         $('duelActiveCard').classList.remove('hidden');
+        $('cancelDuel').classList.remove('hidden');
         await loadDuelState();
         startDuelPoll();
         loadDuelList();
@@ -515,6 +522,22 @@ $('createDuel').addEventListener('click', async () => {
 });
 
 $('refreshDuels').addEventListener('click', loadDuelList);
+
+$('cancelDuel').addEventListener('click', async () => {
+    if (!activeDuelId) return;
+    if (!confirm('Отменить дуэль? Ставка будет возвращена.')) return;
+    try {
+        const d = await api('/api/duel/cancel', { duel_id: activeDuelId });
+        updateBalance(d.balance);
+        stopDuelPoll();
+        activeDuelId = null;
+        $('duelChoices').classList.add('hidden');
+        $('cancelDuel').classList.add('hidden');
+        $('duelActiveCard').classList.add('hidden');
+        $('duelCreateNote').textContent = '✅ Дуэль отменена.';
+        toast('✅ Возвращено: ' + money(d.refund) + ' 🪙');
+    } catch(e) { toast(e.message); }
+});
 
 async function loadDuelList() {
     const box = $('duelList');
@@ -539,10 +562,30 @@ async function joinDuel(duelId) {
         activeDuelId = d.duel_id;
         resetDuelButtons();
         $('duelActiveCard').classList.remove('hidden');
+        $('cancelDuel').classList.remove('hidden');
         toast('⚔️ Ты в дуэли!');
         await loadDuelState();
         startDuelPoll();
     } catch(e) { toast(e.message); }
+}
+
+function renderDuelResult(d) {
+    const you = d.your_choice || '—';
+    const opp = d.opponent_choice || '—';
+    const oppName = d.opponent_name || 'Соперник';
+    if (d.status === 'draw') {
+        $('duelActiveDesc').innerHTML = `<span class="duel-result-draw">🤝 НИЧЬЯ</span><br>Ты: ${you} · ${oppName}: ${opp}`;
+        $('duelActiveNote').textContent = 'Ставки возвращены.';
+    } else if (d.status === 'cancelled') {
+        $('duelActiveDesc').innerHTML = `<span class="duel-result-draw">⌛ ДУЭЛЬ ОТМЕНЕНА</span>`;
+        $('duelActiveNote').textContent = d.cancelled_by === myUid ? 'Ты отменил дуэль.' : 'Соперник отменил дуэль.';
+    } else {
+        const win = d.you_won;
+        const cls = win ? 'duel-result-win' : 'duel-result-lose';
+        const title = win ? '🏆 ПОБЕДА!' : '💀 ПОРАЖЕНИЕ';
+        $('duelActiveDesc').innerHTML = `<span class="${cls}">${title}</span><br>Ты: ${you} · ${oppName}: ${opp}`;
+        $('duelActiveNote').textContent = win ? 'Ты забрал банк!' : 'Ставка потеряна.';
+    }
 }
 
 async function loadDuelState() {
@@ -557,9 +600,11 @@ async function loadDuelState() {
             $('duelActiveDesc').textContent = `Ожидаем соперника. Ставка: ${money(d.bet)} 🪙`;
             $('duelActiveNote').textContent = 'Как только соперник присоединится — появятся кнопки выбора.';
             $('duelChoices').classList.add('hidden');
+            $('cancelDuel').classList.remove('hidden');
         } else if (d.status === 'choosing') {
             $('duelActiveDesc').textContent = `Твой ход: ${you} · Соперник: ${opp}`;
             $('duelChoices').classList.remove('hidden');
+            $('cancelDuel').classList.remove('hidden');
             if (d.your_choice) {
                 $('duelActiveNote').textContent = 'Ждём соперника…';
                 $('duelChoices').querySelectorAll('button').forEach(b => b.disabled = true);
@@ -570,20 +615,16 @@ async function loadDuelState() {
                     b.classList.toggle('chosen', false);
                 });
             }
-        } else if (d.status === 'finished' || d.status === 'draw') {
+        } else if (d.status === 'finished' || d.status === 'draw' || d.status === 'cancelled') {
             stopDuelPoll();
             $('duelChoices').classList.add('hidden');
-            if (d.status === 'draw') {
-                $('duelActiveDesc').textContent = `Ничья. Твой ход: ${d.choice1} · Соперник: ${d.choice2}`;
-                $('duelActiveNote').textContent = 'Ставки возвращены.';
-            } else {
-                $('duelActiveDesc').textContent = `Твой ход: ${d.choice1} · Соперник: ${d.choice2}`;
-                $('duelActiveNote').textContent = 'Дуэль завершена.';
-            }
+            $('cancelDuel').classList.add('hidden');
+            renderDuelResult(d);
             activeDuelId = null;
         } else {
             stopDuelPoll();
             $('duelChoices').classList.add('hidden');
+            $('cancelDuel').classList.add('hidden');
             $('duelActiveDesc').textContent = 'Дуэль ' + d.status;
             $('duelActiveNote').textContent = '';
             activeDuelId = null;
