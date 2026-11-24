@@ -207,6 +207,16 @@ CRASH_MIN = 1.0
 CRASH_MAX = 4.8
 CRASH_SPEED = 0.36
 
+# House edge: вероятность "раннего" краша (1.00x–1.50x).
+# 0.10 = +10% к шансу проигрыша. Рекомендуется указать в правилах игры.
+CRASH_HOUSE_EDGE = 0.10
+
+def generate_crash_point():
+    if random.random() < CRASH_HOUSE_EDGE:
+        return round(random.uniform(1.0, 1.5), 2)
+    r = random.random() ** 1.1
+    return round(CRASH_MIN + r * (CRASH_MAX - CRASH_MIN), 2)
+
 @web_app.route("/api/crash/start", methods=["POST"])
 def mini_crash_start():
     uid, error = mini_auth_user()
@@ -220,7 +230,7 @@ def mini_crash_start():
     ok, msg = take_bet(uid, bet)
     if not ok: return jsonify({"ok": False, "error": msg}), 400
     sid = secrets.token_urlsafe(12)
-    sessions[sid] = {"type": "crash", "user": uid, "crash_point": round(random.uniform(CRASH_MIN, CRASH_MAX), 2), "started": time.time(), "active": True, "bet": bet}
+    sessions[sid] = {"type": "crash", "user": uid, "crash_point": generate_crash_point(), "started": time.time(), "active": True, "bet": bet}
     save_data()
     return jsonify({"ok": True, "session": sid, "multiplier": 1.0, "balance": int(data["players"][uid]["balance"])})
 
@@ -259,6 +269,188 @@ def mini_crash_cashout():
     session["active"] = False; save_data()
     return jsonify({"ok": True, "win": win, "multiplier": multiplier, "balance": int(data["players"][uid]["balance"])})
 
+# ==================== БИЗНЕС (Mini App) ====================
+# Формула дохода согласована с calc_biz_income() (ниже в файле).
+
+def _biz_income(t, b):
+    t = max(1, int(t or 1)); b = max(1, int(b or 1))
+    return int(1000 * t * (1 + (b - 1) * 0.6))
+
+@web_app.route("/api/biz/state", methods=["POST"])
+def mini_biz_state():
+    uid, error = mini_auth_user()
+    if error: return error
+    p = data["players"][uid]
+    terr = p.get("biz_territory", 0); build = p.get("biz_building", 1)
+    now = int(time.time()); last = int(p.get("biz_last_collect", now))
+    hours = max(0, (now - last) // 3600)
+    rate = _biz_income(terr, build) if terr > 0 else 0
+    return jsonify({
+        "ok": True, "territory": terr, "building": build,
+        "tax": p.get("biz_tax", 0), "balance": int(p.get("balance", 0)),
+        "territory_cost": BIZ_TERRITORY_COST.get(terr),
+        "building_cost": BIZ_BUILDING_COST.get(build),
+        "income_per_hour": rate,
+        "pending_income": rate * hours, "pending_hours": hours,
+    })
+
+@web_app.route("/api/biz/upgrade", methods=["POST"])
+def mini_biz_upgrade():
+    uid, error = mini_auth_user()
+    if error: return error
+    payload = request.get_json(silent=True) or {}
+    kind = payload.get("kind")
+    p = data["players"][uid]
+    if kind == "territory":
+        cur = p.get("biz_territory", 0)
+        cost = BIZ_TERRITORY_COST.get(cur)
+        if cost is None: return jsonify({"ok": False, "error": "Максимальный уровень территории"}), 400
+        if int(p.get("balance", 0)) < cost: return jsonify({"ok": False, "error": "Недостаточно монет"}), 400
+        p["balance"] = int(p["balance"]) - cost
+        p["biz_territory"] = cur + 1
+        if p["biz_territory"] == 1:
+            p["biz_building"] = 1; p["biz_tax"] = 0; p["biz_last_collect"] = int(time.time())
+    elif kind == "building":
+        cur = p.get("biz_building", 1)
+        cost = BIZ_BUILDING_COST.get(cur)
+        if cost is None: return jsonify({"ok": False, "error": "Максимальный уровень здания"}), 400
+        if int(p.get("balance", 0)) < cost: return jsonify({"ok": False, "error": "Недостаточно монет"}), 400
+        p["balance"] = int(p["balance"]) - cost
+        p["biz_building"] = cur + 1
+    else:
+        return jsonify({"ok": False, "error": "Неизвестный тип"}), 400
+    save_data()
+    return jsonify({"ok": True, "balance": int(p["balance"]),
+                    "territory": p["biz_territory"], "building": p["biz_building"]})
+
+@web_app.route("/api/biz/collect", methods=["POST"])
+def mini_biz_collect():
+    uid, error = mini_auth_user()
+    if error: return error
+    p = data["players"][uid]
+    if p.get("biz_tax", 0) > 0:
+        return jsonify({"ok": False, "error": f"Сначала оплатите налог ({p['biz_tax']} 🪙)"}), 400
+    now = int(time.time())
+    last = int(p.get("biz_last_collect", now))
+    hours = max(0, (now - last) // 3600)
+    if hours < 1: return jsonify({"ok": False, "error": "Доход ещё не накопился"}), 429
+    rate = _biz_income(p.get("biz_territory", 0), p.get("biz_building", 1))
+    gross = rate * hours
+    if gross <= 0: return jsonify({"ok": False, "error": "Бизнес не приносит дохода"}), 400
+    tax = int(gross * 0.25)
+    received = gross - tax
+    p["balance"] = int(p.get("balance", 0)) + received
+    p["biz_last_collect"] = now
+    save_data()
+    return jsonify({"ok": True, "gross": gross, "tax": tax, "income": received,
+                    "hours": hours, "balance": int(p["balance"])})
+
+# ==================== ДУЭЛИ КНБ (Mini App) ====================
+RPS_MINI_MAP = {"камень": "камень", "ножницы": "ножницы", "бумага": "бумага",
+                "к": "камень", "н": "ножницы", "б": "бумага"}
+
+@web_app.route("/api/duel/create", methods=["POST"])
+def mini_duel_create():
+    uid, error = mini_auth_user()
+    if error: return error
+    payload = request.get_json(silent=True) or {}
+    try: bet = int(payload.get("bet", 0))
+    except (TypeError, ValueError): return jsonify({"ok": False, "error": "Некорректная ставка"}), 400
+    if bet < 100: return jsonify({"ok": False, "error": "Минимум 100 🪙"}), 400
+    if bet > 10_000_000: return jsonify({"ok": False, "error": "Максимум 10 000 000 🪙"}), 400
+    if int(data["players"][uid].get("balance", 0)) < bet: return jsonify({"ok": False, "error": "Недостаточно монет"}), 400
+    for d in data["duels"].values():
+        if d["status"] in ("pending", "choosing") and uid in (d["challenger"], d["opponent"]):
+            return jsonify({"ok": False, "error": "У вас уже есть активная дуэль"}), 409
+    duel_id = secrets.token_urlsafe(8)
+    data["duels"][duel_id] = {"challenger": uid, "opponent": None, "amount": bet,
+                              "status": "pending", "choice1": None, "choice2": None,
+                              "created": int(time.time()), "miniapp": True}
+    save_data()
+    return jsonify({"ok": True, "duel_id": duel_id, "bet": bet})
+
+@web_app.route("/api/duel/list", methods=["POST"])
+def mini_duel_list():
+    uid, error = mini_auth_user()
+    if error: return error
+    active = []; now = int(time.time())
+    for did, d in list(data["duels"].items()):
+        if not d.get("miniapp") or d["status"] != "pending": continue
+        if now - d.get("created", now) > 300:
+            d["status"] = "expired"; continue
+        if d["challenger"] == uid: continue
+        active.append({"duel_id": did, "bet": int(d["amount"]),
+                       "challenger_name": data["players"].get(d["challenger"], {}).get("username", "Игрок")})
+    save_data()
+    return jsonify({"ok": True, "duels": active[:20]})
+
+@web_app.route("/api/duel/join", methods=["POST"])
+def mini_duel_join():
+    uid, error = mini_auth_user()
+    if error: return error
+    payload = request.get_json(silent=True) or {}
+    duel_id = str(payload.get("duel_id", ""))
+    duel = data["duels"].get(duel_id)
+    if not duel or duel.get("status") != "pending": return jsonify({"ok": False, "error": "Дуэль недоступна"}), 404
+    if duel["challenger"] == uid: return jsonify({"ok": False, "error": "Это ваша дуэль"}), 400
+    bet = int(duel["amount"])
+    if int(data["players"][uid].get("balance", 0)) < bet: return jsonify({"ok": False, "error": "Недостаточно монет"}), 400
+    if int(data["players"][duel["challenger"]].get("balance", 0)) < bet:
+        duel["status"] = "cancelled"; save_data()
+        return jsonify({"ok": False, "error": "У соперника недостаточно монет"}), 400
+    add_balance(duel["challenger"], -bet); add_balance(uid, -bet)
+    duel["opponent"] = uid; duel["status"] = "choosing"; save_data()
+    return jsonify({"ok": True, "duel_id": duel_id, "bet": bet})
+
+@web_app.route("/api/duel/choice", methods=["POST"])
+def mini_duel_choice():
+    uid, error = mini_auth_user()
+    if error: return error
+    payload = request.get_json(silent=True) or {}
+    duel_id = str(payload.get("duel_id", ""))
+    choice = RPS_MINI_MAP.get(str(payload.get("choice", "")).lower())
+    duel = data["duels"].get(duel_id)
+    if not duel or duel.get("status") != "choosing": return jsonify({"ok": False, "error": "Дуэль неактивна"}), 404
+    if uid not in (duel["challenger"], duel["opponent"]): return jsonify({"ok": False, "error": "Не ваш ход"}), 403
+    if not choice: return jsonify({"ok": False, "error": "Неверный ход"}), 400
+    if uid == duel["challenger"]:
+        if duel.get("choice1"): return jsonify({"ok": False, "error": "Вы уже сделали ход"}), 409
+        duel["choice1"] = choice
+    else:
+        if duel.get("choice2"): return jsonify({"ok": False, "error": "Вы уже сделали ход"}), 409
+        duel["choice2"] = choice
+    save_data()
+    if duel.get("choice1") and duel.get("choice2"):
+        c1, c2 = duel["choice1"], duel["choice2"]; ch, op = duel["challenger"], duel["opponent"]
+        amount = int(duel["amount"]); pot = amount * 2; result = rps_winner(c1, c2)
+        if result == 0:
+            add_balance(ch, amount); add_balance(op, amount)
+            duel["status"] = "draw"; duel["result"] = "draw"
+        elif result == 1:
+            add_balance(ch, pot); duel["status"] = "finished"; duel["winner"] = ch; duel["result"] = "challenger"
+        else:
+            add_balance(op, pot); duel["status"] = "finished"; duel["winner"] = op; duel["result"] = "opponent"
+        duel["finished_at"] = int(time.time()); save_data()
+    return jsonify({"ok": True, "waiting": not (duel.get("choice1") and duel.get("choice2"))})
+
+@web_app.route("/api/duel/state", methods=["POST"])
+def mini_duel_state():
+    uid, error = mini_auth_user()
+    if error: return error
+    payload = request.get_json(silent=True) or {}
+    duel = data["duels"].get(str(payload.get("duel_id", "")))
+    if not duel: return jsonify({"ok": False, "error": "Дуэль не найдена"}), 404
+    if uid not in (duel["challenger"], duel["opponent"]): return jsonify({"ok": False, "error": "Нет доступа"}), 403
+    out = {"ok": True, "status": duel["status"], "bet": int(duel["amount"]),
+           "challenger": duel["challenger"], "opponent": duel["opponent"],
+           "your_choice": duel.get("choice1") if uid == duel["challenger"] else duel.get("choice2"),
+           "opponent_choice": duel.get("choice2") if uid == duel["challenger"] else duel.get("choice1"),
+           "balance": int(data["players"][uid].get("balance", 0))}
+    if duel["status"] in ("finished", "draw"):
+        out.update({"winner": duel.get("winner"), "result": duel.get("result"),
+                    "choice1": duel.get("choice1"), "choice2": duel.get("choice2")})
+    return jsonify(out)
+    
 @web_app.route("/health")
 def mini_app_health(): return jsonify({"ok": True, "service": "MON1 GAME Mini App"})
 
@@ -646,7 +838,7 @@ def top_cmd(message):
 def chats_cmd(message):
     bot.reply_to(message, "💬 **НАШИ ЧАТЫ**\n📢 https://t.me/mon1bots\n💬 https://t.me/mon1not", parse_mode="Markdown")
 
-# ==================== ДУЭЛИ ====================
+# ==================== ДУЭЛИ (Telegram-бот) ====================
 
 RPS_MAP = {"камень": "🪨", "ножницы": "✂️", "бумага": "📄", "к": "🪨", "н": "✂️", "rock": "🪨", "scissors": "✂️", "paper": "📄"}
 RPS_CHOICES = {"камень": "камень", "ножницы": "ножницы", "бумага": "бумага", "к": "камень", "н": "ножницы", "rock": "камень", "scissors": "ножницы", "paper": "бумага"}
@@ -847,7 +1039,6 @@ def rps_choice_text(message):
     save_data()
     bot.reply_to(message, f"✅ **{RPS_MAP.get(choice, choice)} {choice}**\nЖдём...", parse_mode="Markdown")
     if duel.get("choice1") and duel.get("choice2"): resolve_rps_duel(duel_id, duel)
-
 
 # ==================== АДМИН-ПАНЕЛЬ ====================
 
@@ -1426,7 +1617,7 @@ def roulette_log_reset(message):
     data["roulette_log"] = []; save_data()
     bot.reply_to(message, "✅ Лог рулетки очищен.")
 
-# ==================== БИЗНЕС ====================
+# ==================== БИЗНЕС (Telegram-бот) ====================
 
 @bot.message_handler(func=lambda m: m.text and m.text.lower().strip() == "мой бизнес")
 def my_business(message):
@@ -1539,7 +1730,7 @@ def bank_callbacks(call):
         p = data["players"].get(uid, {}); principal = int(p.get("deposit", 0) or 0); started = int(p.get("deposit_start", 0) or 0)
         if principal <= 0: return bot.answer_callback_query(call.id, "❌ У тебя нет активного депозита.", show_alert=True)
         if int(time.time()) < started + BANK_TERM_SECONDS:
-            left = (started + BANK_TERM_SECONDS) - int(time.time()); return bot.answer_callback_query(call.id, f"⏳ За跨 {left//86400} д. {(left%86400)//3600} ч.", show_alert=True)
+            left = (started + BANK_TERM_SECONDS) - int(time.time()); return bot.answer_callback_query(call.id, f"⏳ За {left//86400} д. {(left%86400)//3600} ч.", show_alert=True)
         interest, total, _ = bank_deposit_snapshot(p); tax = int(total * BANK_WITHDRAW_TAX); received = total - tax
         add_balance(uid, received); data["players"][uid]["deposit"] = 0; data["players"][uid]["deposit_start"] = 0; save_data()
         bot.edit_message_text(f"✅ **Депозит закрыт!**\n💎 Итого: {money_fmt(total)} 🪙\n📈 Проценты: +{money_fmt(interest)} 🪙\n💸 Комиссия: -{money_fmt(tax)} 🪙\n💰 Получено: **{money_fmt(received)} 🪙**", call.message.chat.id, call.message.message_id, parse_mode="Markdown")
