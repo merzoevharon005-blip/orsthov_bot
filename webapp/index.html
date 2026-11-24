@@ -257,9 +257,8 @@ let minesBombs = 5;
 let crashSession = null;
 let crashTimer = null;
 let crashBetValue = 0;
-let duelPollTimer = null;
 let activeDuelId = null;
-let duelChosen = false;
+let duelPollTimer = null;
 
 const $ = id => document.getElementById(id);
 const money = n => Number(n || 0).toLocaleString('ru-RU');
@@ -481,6 +480,22 @@ $('cashoutCrash').addEventListener('click', async () => {
 });
 
 // ДУЭЛИ КНБ
+function resetDuelButtons() {
+    $('duelChoices').querySelectorAll('button').forEach(b => {
+        b.disabled = false;
+        b.classList.remove('chosen');
+    });
+}
+
+function stopDuelPoll() {
+    if (duelPollTimer) { clearInterval(duelPollTimer); duelPollTimer = null; }
+}
+
+function startDuelPoll() {
+    stopDuelPoll();
+    duelPollTimer = setInterval(loadDuelState, 1500);
+}
+
 $('duelMax').addEventListener('click', () => { if (profile) $('duelBet').value = Math.max(100, Math.floor(profile.balance)); });
 
 $('createDuel').addEventListener('click', async () => {
@@ -490,8 +505,11 @@ $('createDuel').addEventListener('click', async () => {
     try {
         const d = await api('/api/duel/create', { bet });
         $('duelCreateNote').textContent = '✅ Вызов создан. Ждём соперника…';
-        activeDuelId = d.duel_id; duelChosen = false;
+        activeDuelId = d.duel_id;
+        resetDuelButtons();
+        $('duelActiveCard').classList.remove('hidden');
         await loadDuelState();
+        startDuelPoll();
         loadDuelList();
     } catch(e) { $('duelCreateNote').textContent = e.message; }
 });
@@ -518,14 +536,17 @@ async function loadDuelList() {
 async function joinDuel(duelId) {
     try {
         const d = await api('/api/duel/join', { duel_id: duelId });
-        activeDuelId = d.duel_id; duelChosen = false;
+        activeDuelId = d.duel_id;
+        resetDuelButtons();
+        $('duelActiveCard').classList.remove('hidden');
         toast('⚔️ Ты в дуэли!');
         await loadDuelState();
+        startDuelPoll();
     } catch(e) { toast(e.message); }
 }
 
 async function loadDuelState() {
-    if (!activeDuelId) return;
+    if (!activeDuelId) { stopDuelPoll(); return; }
     try {
         const d = await api('/api/duel/state', { duel_id: activeDuelId });
         updateBalance(d.balance);
@@ -534,30 +555,43 @@ async function loadDuelState() {
         const opp = d.opponent_choice || '—';
         if (d.status === 'pending') {
             $('duelActiveDesc').textContent = `Ожидаем соперника. Ставка: ${money(d.bet)} 🪙`;
-            $('duelActiveNote').textContent = '';
+            $('duelActiveNote').textContent = 'Как только соперник присоединится — появятся кнопки выбора.';
             $('duelChoices').classList.add('hidden');
         } else if (d.status === 'choosing') {
             $('duelActiveDesc').textContent = `Твой ход: ${you} · Соперник: ${opp}`;
-            $('duelActiveNote').textContent = d.your_choice ? 'Ждём соперника…' : 'Выбери ход:';
             $('duelChoices').classList.remove('hidden');
-            $('duelChoices').querySelectorAll('button').forEach(b => b.classList.toggle('chosen', b.dataset.choice === d.your_choice));
+            if (d.your_choice) {
+                $('duelActiveNote').textContent = 'Ждём соперника…';
+                $('duelChoices').querySelectorAll('button').forEach(b => b.disabled = true);
+            } else {
+                $('duelActiveNote').textContent = 'Выбери ход:';
+                $('duelChoices').querySelectorAll('button').forEach(b => {
+                    b.disabled = false;
+                    b.classList.toggle('chosen', false);
+                });
+            }
         } else if (d.status === 'finished' || d.status === 'draw') {
+            stopDuelPoll();
             $('duelChoices').classList.add('hidden');
             if (d.status === 'draw') {
                 $('duelActiveDesc').textContent = `Ничья. Твой ход: ${d.choice1} · Соперник: ${d.choice2}`;
                 $('duelActiveNote').textContent = 'Ставки возвращены.';
             } else {
-                const win = d.winner === (profile.short_id ? null : null) ? null : null;
                 $('duelActiveDesc').textContent = `Твой ход: ${d.choice1} · Соперник: ${d.choice2}`;
                 $('duelActiveNote').textContent = 'Дуэль завершена.';
             }
             activeDuelId = null;
         } else {
+            stopDuelPoll();
             $('duelChoices').classList.add('hidden');
             $('duelActiveDesc').textContent = 'Дуэль ' + d.status;
+            $('duelActiveNote').textContent = '';
             activeDuelId = null;
         }
-    } catch(e) { $('duelActiveNote').textContent = e.message; }
+    } catch(e) {
+        stopDuelPoll();
+        $('duelActiveNote').textContent = e.message;
+    }
 }
 
 $('duelChoices').querySelectorAll('button').forEach(b => {
@@ -565,9 +599,9 @@ $('duelChoices').querySelectorAll('button').forEach(b => {
         if (!activeDuelId) return;
         try {
             await api('/api/duel/choice', { duel_id: activeDuelId, choice: b.dataset.choice });
+            b.classList.add('chosen');
             $('duelActiveNote').textContent = 'Ход сделан. Ждём соперника…';
             $('duelChoices').querySelectorAll('button').forEach(x => x.disabled = true);
-            await loadDuelState();
         } catch(e) { toast(e.message); }
     });
 });
