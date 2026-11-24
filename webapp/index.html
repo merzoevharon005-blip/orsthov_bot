@@ -61,13 +61,20 @@ button:active { transform:scale(.98); }
 .crash-number { font-size:43px; font-weight:950; letter-spacing:-2px; }
 .crash-caption { font-size:10px; color:var(--muted); letter-spacing:1.6px; margin-top:5px; }
 .crash-line { position:absolute; bottom:24px; left:12%; right:12%; height:2px; background:linear-gradient(90deg,transparent,var(--cyan),transparent); opacity:.6; }
-.tabs { position:fixed; bottom:0; left:0; right:0; background:rgba(10,15,29,.94); backdrop-filter:blur(16px); border-top:1px solid var(--line); padding:10px max(14px,calc((100vw - 560px)/2)) calc(10px + env(safe-area-inset-bottom)); display:grid; grid-template-columns:repeat(3,1fr); gap:8px; z-index:5; }
+.tabs { position:fixed; bottom:0; left:0; right:0; background:rgba(10,15,29,.94); backdrop-filter:blur(16px); border-top:1px solid var(--line); padding:10px max(14px,calc((100vw - 560px)/2)) calc(10px + env(safe-area-inset-bottom)); display:grid; grid-template-columns:repeat(4,1fr); gap:8px; z-index:5; }
 .tab { background:transparent; color:var(--muted); font-size:10px; padding:7px 4px; border-radius:12px; }
 .tab span { display:block; font-size:18px; margin-bottom:4px; }
 .tab.selected { background:rgba(120,103,255,.14); color:#c4bcff; }
 .toast { position:fixed; top:15px; left:50%; transform:translateX(-50%); background:#202c47; border:1px solid var(--line); border-radius:12px; padding:11px 15px; font-size:12px; z-index:10; box-shadow:0 10px 30px #0006; max-width:90%; text-align:center; }
 .loading { text-align:center; color:var(--muted); padding:25px; font-size:12px; }
 .foot { text-align:center; color:#5f6b86; font-size:10px; margin:24px 0 0; }
+.duel-item { display:flex; justify-content:space-between; align-items:center; background:var(--panel2); border:1px solid var(--line); border-radius:12px; padding:11px 13px; margin-top:8px; font-size:12px; }
+.duel-item button { background:linear-gradient(100deg,#20ad8b,#42d6a3); color:#071a19; border-radius:10px; padding:8px 12px; font-size:11px; }
+.choices { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:12px; }
+.choices button { background:var(--panel2); border:1px solid var(--line); border-radius:12px; padding:14px 0; font-size:20px; }
+.choices button.chosen { border-color:#8175ff; background:rgba(120,103,255,.18); }
+.biz-stat { display:flex; justify-content:space-between; font-size:12px; padding:6px 0; border-bottom:1px dashed rgba(161,180,220,.1); }
+.biz-stat:last-child { border-bottom:0; }
 @media(min-width:480px) { body { padding-top:25px; } .tiles { gap:12px; } .tile { min-height:125px; padding:17px; } }
 </style>
 </head>
@@ -108,6 +115,8 @@ button:active { transform:scale(.98); }
             <div class="tiles">
                 <button class="tile" data-page="minesPage"><span class="emoji">💣</span><strong>Мины</strong><small>Ставки и множители</small></button>
                 <button class="tile" data-page="crashPage"><span class="emoji">🚀</span><strong>Краш</strong><small>Забери до краша</small></button>
+                <button class="tile" data-page="duelPage"><span class="emoji">⚔️</span><strong>Дуэли КНБ</strong><small>Камень-ножницы-бумага</small></button>
+                <button class="tile" data-page="bizPage"><span class="emoji">🏢</span><strong>Бизнес</strong><small>Территория и доход</small></button>
                 <button class="tile" data-page="bonusPage"><span class="emoji">🎁</span><strong>Ежедневный бонус</strong><small>Награда раз в 24 часа</small></button>
                 <button class="tile" data-page="promoPage"><span class="emoji">🎟️</span><strong>Промокод</strong><small>Активируй код</small></button>
             </div>
@@ -120,7 +129,7 @@ button:active { transform:scale(.98); }
         </section>
 
         <section id="minesPage" class="hidden">
-            <div class="section-head"><h2>💣 Мины</h2><span>Реальные ставки</span></div>
+            <div class="section-head"><h2>💣 Мины</h2><span>Виртуальная валюта</span></div>
             <div class="card">
                 <div class="card-title">Найди безопасные клетки</div>
                 <div class="desc">Ставка списывается. Каждая клетка повышает множитель. Забери до мины.</div>
@@ -141,7 +150,7 @@ button:active { transform:scale(.98); }
         </section>
 
         <section id="crashPage" class="hidden">
-            <div class="section-head"><h2>🚀 Краш</h2><span>Реальные ставки</span></div>
+            <div class="section-head"><h2>🚀 Краш</h2><span>Виртуальная валюта</span></div>
             <div class="card">
                 <div class="desc" style="margin-top:0;margin-bottom:13px">Ставка списывается. Множитель растёт. Жми «Забрать» до краша!</div>
                 <div class="bet-row">
@@ -156,6 +165,52 @@ button:active { transform:scale(.98); }
                 <button class="primary" id="startCrash">ЗАПУСТИТЬ</button>
                 <button class="primary green hidden" id="cashoutCrash">ЗАБРАТЬ</button>
                 <div class="note" id="crashNote">Введи ставку.</div>
+            </div>
+        </section>
+
+        <section id="duelPage" class="hidden">
+            <div class="section-head"><h2>⚔️ Дуэли КНБ</h2><span>Игрок против игрока</span></div>
+            <div class="card">
+                <div class="card-title">Создать вызов</div>
+                <div class="desc">Соперник увидит вызов в списке и сможет присоединиться. Победитель забирает банк.</div>
+                <div class="bet-row">
+                    <input class="field" id="duelBet" type="number" min="100" step="100" value="500" placeholder="Ставка">
+                    <button class="bet-btn" id="duelMax">MAX</button>
+                </div>
+                <button class="primary" id="createDuel">СОЗДАТЬ ВЫЗОВ</button>
+                <div class="note" id="duelCreateNote"></div>
+            </div>
+            <div class="card">
+                <div class="card-title">Открытые вызовы</div>
+                <div class="desc">Нажми «Присоединиться», чтобы принять дуэль.</div>
+                <div id="duelList"><div class="desc">Загрузка…</div></div>
+                <button class="primary" id="refreshDuels" style="background:var(--panel2);box-shadow:none">ОБНОВИТЬ СПИСОК</button>
+            </div>
+            <div class="card hidden" id="duelActiveCard">
+                <div class="card-title">Твоя дуэль</div>
+                <div class="desc" id="duelActiveDesc"></div>
+                <div class="choices" id="duelChoices">
+                    <button data-choice="камень">🪨</button>
+                    <button data-choice="ножницы">✂️</button>
+                    <button data-choice="бумага">📄</button>
+                </div>
+                <div class="note" id="duelActiveNote"></div>
+            </div>
+        </section>
+
+        <section id="bizPage" class="hidden">
+            <div class="section-head"><h2>🏢 Бизнес</h2><span>Доход в час</span></div>
+            <div class="card">
+                <div class="card-title">Твоё предприятие</div>
+                <div class="biz-stat"><span>📍 Территория</span><b id="bizTerr">0 ур.</b></div>
+                <div class="biz-stat"><span>🏗 Здание</span><b id="bizBuild">1 ур.</b></div>
+                <div class="biz-stat"><span>📈 Доход</span><b id="bizRate">0 🪙/час</b></div>
+                <div class="biz-stat"><span>💰 Накоплено</span><b id="bizPending">0 🪙</b></div>
+                <div class="biz-stat"><span>🧾 Налог к оплате</span><b id="bizTax">0 🪙</b></div>
+                <button class="primary green" id="bizCollect">СОБРАТЬ ДОХОД</button>
+                <button class="primary" id="bizUpTerr">РАСШИРИТЬ ТЕРРИТОРИЮ</button>
+                <button class="primary" id="bizUpBuild">УЛУЧШИТЬ ЗДАНИЕ</button>
+                <div class="note" id="bizNote"></div>
             </div>
         </section>
 
@@ -187,6 +242,7 @@ button:active { transform:scale(.98); }
 <nav class="tabs hidden" id="tabs">
     <button class="tab selected" data-tab="homePage"><span>⌂</span>Главная</button>
     <button class="tab" data-tab="minesPage"><span>🎮</span>Игры</button>
+    <button class="tab" data-tab="duelPage"><span>⚔️</span>Дуэли</button>
     <button class="tab" data-tab="bonusPage"><span>🎁</span>Награды</button>
 </nav>
 
@@ -201,6 +257,9 @@ let minesBombs = 5;
 let crashSession = null;
 let crashTimer = null;
 let crashBetValue = 0;
+let duelPollTimer = null;
+let activeDuelId = null;
+let duelChosen = false;
 
 const $ = id => document.getElementById(id);
 const money = n => Number(n || 0).toLocaleString('ru-RU');
@@ -248,10 +307,12 @@ async function loadProfile() {
 }
 
 function showPage(id) {
-    ['homePage','minesPage','crashPage','bonusPage','promoPage'].forEach(p => $(p).classList.toggle('hidden', p !== id));
+    ['homePage','minesPage','crashPage','duelPage','bizPage','bonusPage','promoPage'].forEach(p => $(p).classList.toggle('hidden', p !== id));
     document.querySelectorAll('.tab').forEach(t => t.classList.toggle('selected',
-        t.dataset.tab === id || ((id==='minesPage'||id==='crashPage')&&t.dataset.tab==='minesPage') || (id==='promoPage'&&t.dataset.tab==='bonusPage')));
+        t.dataset.tab === id || ((id==='minesPage'||id==='crashPage')&&t.dataset.tab==='minesPage') || (id==='promoPage'&&t.dataset.tab==='bonusPage') || (id==='bizPage'&&t.dataset.tab==='minesPage')));
     window.scrollTo({top:0, behavior:'smooth'});
+    if (id === 'duelPage') { loadDuelList(); }
+    if (id === 'bizPage') { loadBizState(); }
 }
 
 document.querySelectorAll('[data-page]').forEach(b => b.addEventListener('click', () => showPage(b.dataset.page)));
@@ -416,6 +477,142 @@ $('cashoutCrash').addEventListener('click', async () => {
         $('startCrash').disabled = false;
         $('cashoutCrash').classList.add('hidden');
         toast('✅ +' + money(d.win));
+    } catch(e) { toast(e.message); }
+});
+
+// ДУЭЛИ КНБ
+$('duelMax').addEventListener('click', () => { if (profile) $('duelBet').value = Math.max(100, Math.floor(profile.balance)); });
+
+$('createDuel').addEventListener('click', async () => {
+    const bet = Number($('duelBet').value);
+    if (!bet || bet < 100) { toast('Мин. 100 🪙'); return; }
+    if (profile && bet > profile.balance) { toast('Недостаточно'); return; }
+    try {
+        const d = await api('/api/duel/create', { bet });
+        $('duelCreateNote').textContent = '✅ Вызов создан. Ждём соперника…';
+        activeDuelId = d.duel_id; duelChosen = false;
+        await loadDuelState();
+        loadDuelList();
+    } catch(e) { $('duelCreateNote').textContent = e.message; }
+});
+
+$('refreshDuels').addEventListener('click', loadDuelList);
+
+async function loadDuelList() {
+    const box = $('duelList');
+    box.innerHTML = '<div class="desc">Загрузка…</div>';
+    try {
+        const d = await api('/api/duel/list');
+        if (!d.duels.length) { box.innerHTML = '<div class="desc">Открытых вызовов нет.</div>'; return; }
+        box.innerHTML = '';
+        d.duels.forEach(x => {
+            const el = document.createElement('div'); el.className = 'duel-item';
+            el.innerHTML = `<span>👤 ${x.challenger_name} · 💰 ${money(x.bet)} 🪙</span>`;
+            const btn = document.createElement('button'); btn.textContent = 'Присоединиться';
+            btn.addEventListener('click', () => joinDuel(x.duel_id));
+            el.appendChild(btn); box.appendChild(el);
+        });
+    } catch(e) { box.innerHTML = '<div class="desc">' + e.message + '</div>'; }
+}
+
+async function joinDuel(duelId) {
+    try {
+        const d = await api('/api/duel/join', { duel_id: duelId });
+        activeDuelId = d.duel_id; duelChosen = false;
+        toast('⚔️ Ты в дуэли!');
+        await loadDuelState();
+    } catch(e) { toast(e.message); }
+}
+
+async function loadDuelState() {
+    if (!activeDuelId) return;
+    try {
+        const d = await api('/api/duel/state', { duel_id: activeDuelId });
+        updateBalance(d.balance);
+        $('duelActiveCard').classList.remove('hidden');
+        const you = d.your_choice || '—';
+        const opp = d.opponent_choice || '—';
+        if (d.status === 'pending') {
+            $('duelActiveDesc').textContent = `Ожидаем соперника. Ставка: ${money(d.bet)} 🪙`;
+            $('duelActiveNote').textContent = '';
+            $('duelChoices').classList.add('hidden');
+        } else if (d.status === 'choosing') {
+            $('duelActiveDesc').textContent = `Твой ход: ${you} · Соперник: ${opp}`;
+            $('duelActiveNote').textContent = d.your_choice ? 'Ждём соперника…' : 'Выбери ход:';
+            $('duelChoices').classList.remove('hidden');
+            $('duelChoices').querySelectorAll('button').forEach(b => b.classList.toggle('chosen', b.dataset.choice === d.your_choice));
+        } else if (d.status === 'finished' || d.status === 'draw') {
+            $('duelChoices').classList.add('hidden');
+            if (d.status === 'draw') {
+                $('duelActiveDesc').textContent = `Ничья. Твой ход: ${d.choice1} · Соперник: ${d.choice2}`;
+                $('duelActiveNote').textContent = 'Ставки возвращены.';
+            } else {
+                const win = d.winner === (profile.short_id ? null : null) ? null : null;
+                $('duelActiveDesc').textContent = `Твой ход: ${d.choice1} · Соперник: ${d.choice2}`;
+                $('duelActiveNote').textContent = 'Дуэль завершена.';
+            }
+            activeDuelId = null;
+        } else {
+            $('duelChoices').classList.add('hidden');
+            $('duelActiveDesc').textContent = 'Дуэль ' + d.status;
+            activeDuelId = null;
+        }
+    } catch(e) { $('duelActiveNote').textContent = e.message; }
+}
+
+$('duelChoices').querySelectorAll('button').forEach(b => {
+    b.addEventListener('click', async () => {
+        if (!activeDuelId) return;
+        try {
+            await api('/api/duel/choice', { duel_id: activeDuelId, choice: b.dataset.choice });
+            $('duelActiveNote').textContent = 'Ход сделан. Ждём соперника…';
+            $('duelChoices').querySelectorAll('button').forEach(x => x.disabled = true);
+            await loadDuelState();
+        } catch(e) { toast(e.message); }
+    });
+});
+
+// БИЗНЕС
+async function loadBizState() {
+    try {
+        const d = await api('/api/biz/state');
+        $('bizTerr').textContent = d.territory + ' ур.';
+        $('bizBuild').textContent = d.building + ' ур.';
+        $('bizRate').textContent = money(d.income_per_hour) + ' 🪙/час';
+        $('bizPending').textContent = money(d.pending_income) + ' 🪙';
+        $('bizTax').textContent = money(d.tax) + ' 🪙';
+        $('bizUpTerr').textContent = d.territory_cost ? `РАСШИРИТЬ · ${money(d.territory_cost)} 🪙` : 'ТЕРРИТОРИЯ MAX';
+        $('bizUpTerr').disabled = !d.territory_cost;
+        $('bizUpBuild').textContent = d.building_cost ? `УЛУЧШИТЬ · ${money(d.building_cost)} 🪙` : 'ЗДАНИЕ MAX';
+        $('bizUpBuild').disabled = !d.building_cost;
+        $('bizCollect').disabled = d.pending_hours < 1;
+    } catch(e) { $('bizNote').textContent = e.message; }
+}
+
+$('bizCollect').addEventListener('click', async () => {
+    try {
+        const d = await api('/api/biz/collect');
+        updateBalance(d.balance);
+        $('bizNote').textContent = `✅ Получено ${money(d.income)} 🪙 (налог ${money(d.tax)} 🪙)`;
+        loadBizState();
+    } catch(e) { $('bizNote').textContent = e.message; }
+});
+
+$('bizUpTerr').addEventListener('click', async () => {
+    try {
+        const d = await api('/api/biz/upgrade', { kind: 'territory' });
+        updateBalance(d.balance);
+        toast('📍 Территория +1');
+        loadBizState();
+    } catch(e) { toast(e.message); }
+});
+
+$('bizUpBuild').addEventListener('click', async () => {
+    try {
+        const d = await api('/api/biz/upgrade', { kind: 'building' });
+        updateBalance(d.balance);
+        toast('🏗 Здание +1');
+        loadBizState();
     } catch(e) { toast(e.message); }
 });
 
