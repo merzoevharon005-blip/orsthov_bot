@@ -4,8 +4,17 @@ from urllib.parse import parse_qsl
 from flask import Flask, jsonify, request, send_from_directory
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, LabeledPrice, WebAppInfo
 
+import telebot
 from telebot import apihelper
+
+# 1. Указываем URL вашего Cloudflare Worker'а (с плейсхолдерами!)
 apihelper.API_URL = "https://rapid-wave-4097.dn6vgrjn7v.workers.dev/bot{0}/{1}"
+
+# 2. Если у вас БЫЛ настроен прокси через pysocks, удалите или закомментируйте эти строки:
+# apihelper.proxy = {'https': 'socks5://...'} 
+
+# 3. Инициализируем бота как обычно
+bot = telebot.TeleBot("ВАШ_ТОКЕН_БОТА")
 
 TOKEN = os.getenv("BOT_TOKEN")
 if not TOKEN: raise ValueError("Не задан BOT_TOKEN")
