@@ -5,7 +5,7 @@ from flask import Flask, jsonify, request, send_from_directory
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, LabeledPrice, WebAppInfo
 
 from telebot import apihelper
-apihelper.proxy = {'https': 'https://rapid-wave-4097.dn6vgrjn7v.workers.dev'}
+apihelper.API_URL = "https://rapid-wave-4097.dn6vgrjn7v.workers.dev/bot{0}/{1}"
 
 TOKEN = os.getenv("BOT_TOKEN")
 if not TOKEN: raise ValueError("Не задан BOT_TOKEN")
